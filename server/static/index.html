@@ -1,0 +1,4133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbital</title>
+<link rel="stylesheet" href="/design-system.css">
+</head>
+<body>
+
+<div id="app">
+  <nav id="top-nav">
+    <span id="logo" onclick="navigate('dashboard')">ORBITAL</span>
+    <span id="nav-back" class="d-none" onclick="navigate('dashboard')">&#8592;</span>
+    <span id="nav-context" class="d-none"></span>
+    <div class="ws-dropdown" id="nav-ws" style="margin-left:auto;">
+      <div class="live-badge live-badge--clickable" id="ws-status" onclick="toggleWsDropdown()"><span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span></div>
+      <div class="ws-dropdown-menu d-none" id="ws-menu"></div>
+    </div>
+  </nav>
+  <div id="main"></div>
+</div>
+
+<div id="detail-drawer" class="glass">
+  <button id="drawer-close" onclick="closeDrawer()">&times;</button>
+  <div id="drawer-content"></div>
+</div>
+
+<div id="slide-over-backdrop" onclick="closeSlideOver()"></div>
+<div id="slide-over" class="glass">
+  <div id="slide-over-header">
+    <div id="slide-over-title"></div>
+    <button id="slide-over-close" onclick="closeSlideOver()">&times;</button>
+  </div>
+  <div id="slide-over-body"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════
+
+const state = {
+  view: 'dashboard',
+  workspaces: [],
+  catalog: { agents: {}, templates: {}, tools: {} },
+  currentOpp: null,
+  // Graph state
+  graph: null, // { sim, renderer, nodeMap, animId }
+  ws: null,
+};
+
+const AGENT_COLORS = {
+  product: '#10B981', design: '#8B5CF6', data: '#3B82F6', engineering: '#F97316',
+  'commercial-strategy': '#EC4899', analyst: '#14B8A6', research: '#A855F7',
+};
+function agentColor(fn) { return AGENT_COLORS[fn] || '#6b7a90'; }
+function rosterFn(r) { return r.function || r.agent_function; }
+function showThinking(feedId) {
+  const feed = document.getElementById(feedId);
+  if (!feed) return;
+  removeThinking(feedId);
+  const div = document.createElement('div');
+  div.className = 'ai-thinking';
+  div.id = feedId + '-thinking';
+  div.innerHTML = '<span class="ai-chat-label">thinking</span><span class="ai-thinking-dots"><span>.</span><span>.</span><span>.</span></span>';
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+function removeThinking(feedId) {
+  const el = document.getElementById(feedId + '-thinking');
+  if (el) el.remove();
+}
+function normalizeAssumption(a, i) {
+  if (typeof a === 'string') return {id:`asm-${String(i+1).padStart(3,'0')}`,content:a,status:'untested',importance:'medium'};
+  if (a && typeof a === 'object') {
+    if (a.content) return a;
+    if ('0' in a) { let t=''; for(let k=0;k<Object.keys(a).length;k++){if(String(k) in a) t+=a[String(k)]; else break;} return {id:`asm-${String(i+1).padStart(3,'0')}`,content:t,status:'untested',importance:'medium'}; }
+  }
+  return {id:`asm-${String(i+1).padStart(3,'0')}`,content:String(a||''),status:'untested',importance:'medium'};
+}
+
+const TYPE_COLORS = {
+  evidence_candidate: '#10B981', counter_signal: '#EF4444', constraint: '#64748B',
+  opportunity: '#14B8A6', risk: '#F59E0B', measurement: '#06B6D4',
+  prototype_insight: '#A78BFA', strategic_insight: '#10B981', competitive_intel: '#3B82F6',
+};
+const IMP_COLORS = { critical: '#EF4444', high: '#F59E0B', medium: '#64748B' };
+
+// ════════════════════════════════════════════════════════════
+// API
+// ════════════════════════════════════════════════════════════
+
+const api = {
+  async get(path) { const r = await fetch(`/api/${path}`); return r.ok ? r.json() : null; },
+  async getText(path) { const r = await fetch(`/api/${path}`); return r.ok ? r.text() : null; },
+  async post(path, body) {
+    const r = await fetch(`/api/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+    return r.json();
+  },
+  async patch(path, body) {
+    const r = await fetch(`/api/${path}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+    return r.json();
+  },
+};
+
+// ════════════════════════════════════════════════════════════
+// PHYSICS ENGINE
+// ════════════════════════════════════════════════════════════
+
+const PHYSICS = {
+  chargeStrength: -150,
+  linkDistance: 120,
+  linkStrength: 0.15,
+  centerGravity: 0.003,
+  clusterGravity: 0.014,
+  clusterRepulsion: -800,
+  damping: 0.15,
+  iterations: 3,
+  noiseAmp: 0.06,
+  noiseSpeed: 0.0004,
+};
+
+class GNode {
+  constructor(id, type, color, radius, data) {
+    this.id = id; this.type = type; this.color = color;
+    this.radius = radius; this.data = data || {};
+    this.x = 0; this.y = 0; this.px = 0; this.py = 0;
+    this.fx = 0; this.fy = 0;
+    this.mass = type === 'center' ? 3 : 1;
+    this.alive = false; this.spawnTime = 0;
+    this.pinned = false; this.glowIntensity = 1;
+    this.highlighted = false; this.dimmed = false; this.dimAlpha = 1;
+    this.isCounter = false;
+    this.cluster = null;
+    this.pulsePhase = Math.random() * Math.PI * 2;
+  }
+  spawn(x, y, vx, vy) {
+    this.x = x; this.y = y;
+    this.px = x - (vx || 0); this.py = y - (vy || 0);
+    this.alive = true; this.spawnTime = performance.now();
+  }
+  applyForce(fx, fy) { this.fx += fx / this.mass; this.fy += fy / this.mass; }
+  integrate(damping) {
+    if (this.pinned || !this.alive) return;
+    let vx = (this.x - this.px) * (1 - damping);
+    let vy = (this.y - this.py) * (1 - damping);
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    if (speed > 3) { vx = (vx / speed) * 3; vy = (vy / speed) * 3; }
+    this.px = this.x; this.py = this.y;
+    this.x += vx + this.fx; this.y += vy + this.fy;
+    this.fx = 0; this.fy = 0;
+  }
+}
+
+class GLink {
+  constructor(source, target, distance, color, type) {
+    this.source = source; this.target = target;
+    this.distance = distance; this.color = color;
+    this.type = type; this.alive = false;
+    this.particle = 0;
+    this.particleSpeed = 0.003 + Math.random() * 0.002;
+  }
+  apply(strength) {
+    if (!this.alive || !this.source.alive || !this.target.alive) return;
+    const dx = this.target.x - this.source.x;
+    const dy = this.target.y - this.source.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const delta = (this.distance - dist) * strength * 0.5;
+    const fx = (dx / dist) * delta, fy = (dy / dist) * delta;
+    this.source.applyForce(-fx, -fy);
+    this.target.applyForce(fx, fy);
+  }
+}
+
+class ForceSimulation {
+  constructor() { this.nodes = []; this.links = []; this.width = 800; this.height = 600; this.time = 0; this._scanStart = null; this._scanDuration = 3000; this.alpha = 1.0; this.alphaDecay = 0.002; this.alphaMin = 0.01; this._lastNodeCount = 0; }
+  reheat() { this.alpha = 1.0; }
+  tick() {
+    const alive = this.nodes.filter(n => n.alive);
+    if (!alive.length) return;
+    // Reheat when new nodes are added
+    if (alive.length !== this._lastNodeCount) { this._lastNodeCount = alive.length; this.reheat(); }
+    // Cool down
+    this.alpha = Math.max(this.alphaMin, this.alpha * (1 - this.alphaDecay));
+    const a = this.alpha;
+    for (let iter = 0; iter < PHYSICS.iterations; iter++) {
+      for (const link of this.links) link.apply(PHYSICS.linkStrength);
+      // Charge repulsion
+      for (let i = 0; i < alive.length; i++) {
+        for (let j = i + 1; j < alive.length; j++) {
+          const a = alive[i], b = alive[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const distSq = dx * dx + dy * dy || 1;
+          const dist = Math.sqrt(distSq);
+          const force = PHYSICS.chargeStrength / distSq;
+          const fx = (dx / dist) * force, fy = (dy / dist) * force;
+          a.applyForce(fx, fy); b.applyForce(-fx, -fy);
+        }
+      }
+      // Center gravity
+      const cx = this.width / 2, cy = this.height / 2;
+      for (const n of alive) {
+        n.applyForce((cx - n.x) * PHYSICS.centerGravity * a, (cy - n.y) * PHYSICS.centerGravity * a);
+      }
+      // Cluster gravity
+      const clusters = {};
+      for (const n of alive) {
+        if (!n.cluster) continue;
+        if (!clusters[n.cluster]) clusters[n.cluster] = { sx: 0, sy: 0, count: 0, nodes: [] };
+        clusters[n.cluster].sx += n.x; clusters[n.cluster].sy += n.y;
+        clusters[n.cluster].count++; clusters[n.cluster].nodes.push(n);
+      }
+      const clusterIds = Object.keys(clusters);
+      for (const cid of clusterIds) {
+        const c = clusters[cid];
+        c.cx = c.sx / c.count; c.cy = c.sy / c.count;
+        for (const n of c.nodes) {
+          n.applyForce((c.cx - n.x) * PHYSICS.clusterGravity, (c.cy - n.y) * PHYSICS.clusterGravity);
+        }
+      }
+      // Inter-cluster repulsion
+      for (let i = 0; i < clusterIds.length; i++) {
+        for (let j = i + 1; j < clusterIds.length; j++) {
+          const a = clusters[clusterIds[i]], b = clusters[clusterIds[j]];
+          const dx = b.cx - a.cx, dy = b.cy - a.cy;
+          const distSq = dx * dx + dy * dy || 1;
+          const dist = Math.sqrt(distSq);
+          const force = PHYSICS.clusterRepulsion / distSq;
+          const fx = (dx / dist) * force, fy = (dy / dist) * force;
+          for (const n of a.nodes) n.applyForce(fx / a.count, fy / a.count);
+          for (const n of b.nodes) n.applyForce(-fx / b.count, -fy / b.count);
+        }
+      }
+      // Noise (fades as simulation cools)
+      this.time += PHYSICS.noiseSpeed;
+      const noiseScale = PHYSICS.noiseAmp * a;
+      for (const n of alive) {
+        if (n.pinned) continue;
+        n.applyForce(
+          Math.sin(this.time * 1.7 + n.x * 0.01 + n.y * 0.013) * noiseScale,
+          Math.cos(this.time * 1.3 + n.y * 0.01 + n.x * 0.011) * noiseScale
+        );
+      }
+      for (const n of alive) n.integrate(PHYSICS.damping);
+      // Bounds
+      const m = 40;
+      for (const n of alive) {
+        n.x = Math.max(m, Math.min(this.width - m, n.x));
+        n.y = Math.max(m, Math.min(this.height - m, n.y));
+      }
+    }
+    // Animate review particles
+    for (const l of this.links) {
+      if (l.alive && l.type.startsWith('review')) l.particle = (l.particle + l.particleSpeed) % 1;
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// RENDERER
+// ════════════════════════════════════════════════════════════
+
+class Renderer {
+  constructor(canvas, sim) {
+    this.canvas = canvas; this.ctx = canvas.getContext('2d');
+    this.sim = sim; this.dpr = window.devicePixelRatio || 1;
+    this.zoom = 1; this.panX = 0; this.panY = 0;
+    this._targetZoom = 1; this._targetPanX = 0; this._targetPanY = 0;
+    this._animating = false;
+    this.resize();
+  }
+  resize() {
+    const rect = this.canvas.parentElement.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    this.canvas.width = w * this.dpr; this.canvas.height = h * this.dpr;
+    this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.sim.width = w; this.sim.height = h;
+  }
+  screenToGraph(sx, sy) {
+    const rect = this.canvas.getBoundingClientRect();
+    const lx = sx - rect.left, ly = sy - rect.top;
+    const w = this.sim.width, h = this.sim.height;
+    return {
+      x: (lx - w / 2 - this.panX) / this.zoom + w / 2,
+      y: (ly - h / 2 - this.panY) / this.zoom + h / 2
+    };
+  }
+  animateTo(zoom, panX, panY) {
+    this._targetZoom = zoom; this._targetPanX = panX; this._targetPanY = panY;
+    this._animating = true;
+  }
+  _updateAnimation() {
+    if (!this._animating) return;
+    const ease = 0.1;
+    this.zoom += (this._targetZoom - this.zoom) * ease;
+    this.panX += (this._targetPanX - this.panX) * ease;
+    this.panY += (this._targetPanY - this.panY) * ease;
+    if (Math.abs(this.zoom - this._targetZoom) < 0.001 &&
+        Math.abs(this.panX - this._targetPanX) < 0.5 &&
+        Math.abs(this.panY - this._targetPanY) < 0.5) {
+      this.zoom = this._targetZoom; this.panX = this._targetPanX; this.panY = this._targetPanY;
+      this._animating = false;
+    }
+  }
+  render(time) {
+    this._updateAnimation();
+    const { ctx, sim, zoom, panX, panY } = this;
+    const w = sim.width, h = sim.height;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    // Background gradient
+    const bgGrad = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w * 0.6);
+    bgGrad.addColorStop(0, '#0e1018'); bgGrad.addColorStop(1, '#0a0c12');
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, w, h);
+    // Apply zoom/pan
+    ctx.setTransform(this.dpr * zoom, 0, 0, this.dpr * zoom,
+      this.dpr * (w / 2 + panX - (w / 2) * zoom),
+      this.dpr * (h / 2 + panY - (h / 2) * zoom));
+    // Draw links
+    for (const l of sim.links) { if (l.alive && l.source.alive && l.target.alive) this.drawLink(l, time); }
+    // Draw nodes
+    for (const n of sim.nodes) { if (n.alive) this.drawNode(n, time); }
+    // Scan ring effect
+    if (sim._scanStart) {
+      const elapsed = time - sim._scanStart;
+      const progress = elapsed / sim._scanDuration;
+      if (progress > 1.3) { sim._scanStart = null; }
+      else {
+        const cx = w / 2, cy = h / 2;
+        const maxR = Math.max(w, h) * 0.5;
+        const ringR = progress * maxR;
+        const ringAlpha = Math.max(0, 1 - progress * 0.8);
+        ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(16, 185, 129, ${ringAlpha * 0.4})`;
+        ctx.lineWidth = 2; ctx.stroke();
+        ctx.save(); ctx.filter = 'blur(8px)';
+        ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(16, 185, 129, ${ringAlpha * 0.2})`;
+        ctx.lineWidth = 12; ctx.stroke();
+        ctx.restore();
+        for (const n of sim.nodes) {
+          if (!n.alive) continue;
+          const dist = Math.sqrt((n.x - cx) ** 2 + (n.y - cy) ** 2);
+          const diff = Math.abs(dist - ringR);
+          if (diff < 30) {
+            const pulse = 1 - diff / 30;
+            const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius * 4);
+            gr.addColorStop(0, `rgba(16, 185, 129, ${pulse * 0.3})`);
+            gr.addColorStop(1, 'transparent');
+            ctx.fillStyle = gr;
+            ctx.beginPath(); ctx.arc(n.x, n.y, n.radius * 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  }
+  drawLink(link, time) {
+    const { ctx } = this;
+    const s = link.source, t = link.target;
+    const dx = t.x - s.x, dy = t.y - s.y, dist = Math.sqrt(dx*dx + dy*dy);
+    const isBrief = link.type === 'brief' || link.type === 'brief-ref';
+    const baseAlpha = 0.06;
+    const maxAlpha = link.type.startsWith('review') ? 0.45 : isBrief ? 0.5 : 0.2;
+    const prox = Math.max(baseAlpha, maxAlpha * (1 - Math.min(dist / 300, 1)));
+    const dimFactor = Math.min(s.dimAlpha ?? 1, t.dimAlpha ?? 1);
+    const alpha = prox * dimFactor;
+    ctx.beginPath(); ctx.moveTo(s.x, s.y);
+    if (link.type.startsWith('review')) {
+      const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
+      const px = -(t.y-s.y)*0.15, py = (t.x-s.x)*0.15;
+      ctx.quadraticCurveTo(mx+px, my+py, t.x, t.y);
+    } else { ctx.lineTo(t.x, t.y); }
+    ctx.strokeStyle = link.color || '#4a5568';
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = link.type.startsWith('review') ? 1.5 : isBrief ? 1.8 : 0.7;
+    if (link.type === 'review-challenge') ctx.setLineDash([4, 3]);
+    else if (isBrief) ctx.setLineDash([6, 4]);
+    else ctx.setLineDash([]);
+    ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
+    // Glow for brief links
+    if (isBrief && alpha > 0.1) {
+      ctx.save(); ctx.filter = 'blur(4px)'; ctx.globalAlpha = alpha * 0.3;
+      ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 3; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+      ctx.stroke(); ctx.restore(); ctx.setLineDash([]);
+    }
+    // Glow for review links
+    if (link.type.startsWith('review') && alpha > 0.12) {
+      ctx.save(); ctx.filter = 'blur(3px)'; ctx.globalAlpha = alpha * 0.35;
+      ctx.strokeStyle = link.color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y);
+      const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
+      const px = -(t.y-s.y)*0.15, py = (t.x-s.x)*0.15;
+      ctx.quadraticCurveTo(mx+px, my+py, t.x, t.y);
+      ctx.stroke(); ctx.restore();
+    }
+    // Particle on review links
+    if (link.type.startsWith('review') && alpha > 0.08) {
+      const p = link.particle;
+      const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
+      const ppx = -(t.y-s.y)*0.15, ppy = (t.x-s.x)*0.15;
+      const cpx = mx+ppx, cpy = my+ppy;
+      const qx = (1-p)*(1-p)*s.x + 2*(1-p)*p*cpx + p*p*t.x;
+      const qy = (1-p)*(1-p)*s.y + 2*(1-p)*p*cpy + p*p*t.y;
+      const pCol = link.type === 'review-challenge' ? '#EF4444' : '#10B981';
+      const grad = ctx.createRadialGradient(qx, qy, 0, qx, qy, 5);
+      grad.addColorStop(0, pCol); grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(qx, qy, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  drawNode(node, time) {
+    const { ctx } = this;
+    const age = (time - node.spawnTime) / 1000;
+    const t = Math.min(1, age * 0.9);
+    const spawnScale = 1 - (1 - t) * (1 - t);
+    const r = node.radius * spawnScale;
+    if (r < 0.5) return;
+    const dimTarget = node.dimmed ? 0.25 : 1;
+    node.dimAlpha += (dimTarget - node.dimAlpha) * 0.04;
+    const alpha = node.dimAlpha;
+    const gm = node.highlighted ? 1.8 : 1;
+    // Glow halo
+    const glowR = r * 3 * gm;
+    const gg = ctx.createRadialGradient(node.x, node.y, r * 0.3, node.x, node.y, glowR);
+    gg.addColorStop(0, this.ca(node.color, 0.22 * alpha * gm));
+    gg.addColorStop(0.5, this.ca(node.color, 0.06 * alpha * gm));
+    gg.addColorStop(1, 'transparent');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(node.x, node.y, glowR, 0, Math.PI*2); ctx.fill();
+    // Counter pulse
+    if (node.isCounter) {
+      const p = 0.5 + 0.5 * Math.sin(time * 0.003 + node.pulsePhase);
+      const pr = r * (2.5 + p * 1.5);
+      const pg = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, pr);
+      pg.addColorStop(0, this.ca('#EF4444', 0.12 * p * alpha)); pg.addColorStop(1, 'transparent');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(node.x, node.y, pr, 0, Math.PI*2); ctx.fill();
+    }
+    // Center pulse
+    if (node.type === 'center') {
+      const p = 0.5 + 0.5 * Math.sin(time * 0.002);
+      const pr = r * (2 + p);
+      const pg = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, pr);
+      pg.addColorStop(0, this.ca('#10B981', 0.1 * p * alpha)); pg.addColorStop(1, 'transparent');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(node.x, node.y, pr, 0, Math.PI*2); ctx.fill();
+    }
+    // Brief glow
+    if (node.type === 'brief') {
+      const p = 0.5 + 0.5 * Math.sin(time * 0.003);
+      const pr = r * (2.2 + p * 0.8);
+      const pg = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, pr);
+      pg.addColorStop(0, this.ca('#F59E0B', 0.15 * p * alpha)); pg.addColorStop(1, 'transparent');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(node.x, node.y, pr, 0, Math.PI*2); ctx.fill();
+    }
+    // Shape
+    if (node.type === 'brief') {
+      ctx.globalAlpha = alpha; ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        const hx = node.x + Math.cos(a) * r, hy = node.y + Math.sin(a) * r;
+        i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+      }
+      ctx.closePath();
+      ctx.fillStyle = this.ca('#F59E0B', 0.35); ctx.fill();
+      ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(node.x, node.y, r * 0.3, 0, Math.PI*2);
+      ctx.fillStyle = this.ca('#F59E0B', 0.7); ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (node.type === 'artifact') {
+      ctx.save(); ctx.translate(node.x, node.y); ctx.rotate(Math.PI/4);
+      ctx.globalAlpha = alpha; ctx.fillStyle = this.ca(node.color, 0.45);
+      ctx.fillRect(-r*0.7, -r*0.7, r*1.4, r*1.4);
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.strokeRect(-r*0.7, -r*0.7, r*1.4, r*1.4);
+      ctx.globalAlpha = 1; ctx.restore();
+    } else if (node.type === 'assumption') {
+      ctx.globalAlpha = alpha;
+      ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI*2);
+      ctx.strokeStyle = node.color; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(node.x, node.y, r*0.3, 0, Math.PI*2);
+      ctx.fillStyle = this.ca(node.color, 0.4); ctx.fill();
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = alpha;
+      ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI*2);
+      ctx.fillStyle = this.ca(node.color, 0.4); ctx.fill();
+      ctx.strokeStyle = node.data?.typeColor || node.color;
+      ctx.lineWidth = node.type === 'center' ? 2.5 : 1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(node.x, node.y, r*0.35, 0, Math.PI*2);
+      ctx.fillStyle = this.ca(node.color, 0.7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Labels
+    ctx.textAlign = 'center';
+    const labelY = node.y + r + 13;
+    if (node.type === 'center') {
+      ctx.globalAlpha = alpha * 0.7; ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 10px Inter, system-ui';
+      ctx.fillText('OPPORTUNITY', node.x, labelY);
+    } else if (node.type === 'assumption') {
+      ctx.globalAlpha = alpha * 0.5; ctx.fillStyle = node.color;
+      ctx.font = '8px JetBrains Mono, monospace';
+      const imp = node.data?.importance || '';
+      const tag = imp === 'critical' ? 'CRITICAL' : imp === 'high' ? 'HIGH' : 'MED';
+      ctx.fillText(`${node.id} [${tag}]`, node.x, labelY);
+    } else if (node.type === 'finding') {
+      const d = node.data;
+      const LABELS = { counter_signal: 'COUNTER', risk: 'RISK', opportunity: 'OPPORTUNITY',
+        evidence_candidate: 'EVIDENCE', prototype_insight: 'PROTOTYPE', measurement: 'MEASUREMENT',
+        constraint: 'CONSTRAINT', strategic_insight: 'STRATEGY', competitive_intel: 'INTEL' };
+      const label = LABELS[d.type] || d.type?.replace(/_/g,' ').toUpperCase() || 'FINDING';
+      if (node.isCounter) {
+        ctx.globalAlpha = alpha * 0.85; ctx.fillStyle = '#EF4444';
+        ctx.font = 'bold 9px JetBrains Mono, monospace';
+      } else if (d.confidence >= 0.8) {
+        ctx.globalAlpha = alpha * 0.7; ctx.fillStyle = node.color;
+        ctx.font = 'bold 8px JetBrains Mono, monospace';
+      } else {
+        ctx.globalAlpha = alpha * 0.35; ctx.fillStyle = '#6b7a90';
+        ctx.font = '8px JetBrains Mono, monospace';
+      }
+      ctx.fillText(label, node.x, labelY);
+    } else if (node.type === 'brief') {
+      ctx.globalAlpha = alpha * 0.85; ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 9px Inter, system-ui';
+      ctx.fillText(node.data?.agent_function?.toUpperCase() || 'BRIEF', node.x, labelY);
+    } else if (node.type === 'artifact') {
+      ctx.globalAlpha = alpha * 0.35; ctx.fillStyle = '#6b7a90';
+      ctx.font = '7px JetBrains Mono, monospace';
+      ctx.fillText('ARTIFACT', node.x, labelY);
+    }
+    ctx.globalAlpha = 1;
+  }
+  ca(hex, a) {
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// GRAPH BUILDER — from API data
+// ════════════════════════════════════════════════════════════
+
+async function buildGraphFromWorkspace(opp_id) {
+  const ws = await api.get(`workspaces/${opp_id}`);
+  if (!ws) return null;
+  const opp = ws.opportunity;
+
+  const sim = new ForceSimulation();
+  const nodeMap = {};
+
+  // Center node (opportunity)
+  const center = new GNode('center', 'center', '#10B981', 18, opp);
+  nodeMap['center'] = center; sim.nodes.push(center);
+
+  // Assumptions
+  (opp.assumptions || []).map(normalizeAssumption).forEach(asm => {
+    const node = new GNode(asm.id, 'assumption', IMP_COLORS[asm.importance] || '#64748B', 8, asm);
+    node.cluster = 'assumptions';
+    nodeMap[asm.id] = node; sim.nodes.push(node);
+    sim.links.push(new GLink(center, node, 90, '#2a2d37', 'assumption'));
+  });
+
+  // Load contributions and build finding nodes
+  const briefNodes = {};
+  for (const c of ws.contributions) {
+    const data = await api.get(`workspaces/${opp_id}/contributions/${c.filename}`);
+    if (!data) continue;
+    const fn = data.agent_function || c.filename.replace('.json', '').replace(/-round-\d+/, '');
+    const color = agentColor(fn);
+
+    // Brief node per contribution
+    const briefId = `brief:${c.filename}`;
+    const briefNode = new GNode(briefId, 'brief', '#F59E0B', 14, {
+      ...data, agent_function: fn, filename: c.filename
+    });
+    briefNode.cluster = fn;
+    nodeMap[briefId] = briefNode; sim.nodes.push(briefNode);
+    briefNodes[fn] = briefNode;
+    sim.links.push(new GLink(center, briefNode, 60, '#F59E0B', 'brief'));
+
+    // Finding nodes
+    (data.findings || []).forEach((f, fi) => {
+      const key = `${fn}:${f.id || 'f' + fi}`;
+      const r = f.confidence > 0.8 ? 10 : (f.confidence > 0.6 ? 8 : 6);
+      const node = new GNode(key, 'finding', color, r, {
+        ...f, agent: fn, agentLabel: fn, typeColor: TYPE_COLORS[f.type] || '#64748B'
+      });
+      node.isCounter = f.type === 'counter_signal' || f.direction === 'contradicts';
+      node.cluster = fn;
+      nodeMap[key] = node; sim.nodes.push(node);
+
+      // Link to assumptions
+      const asmLinks = f.assumptions || f.assumption_refs || [];
+      let linked = false;
+      asmLinks.forEach(asmId => {
+        if (nodeMap[asmId]) {
+          sim.links.push(new GLink(node, nodeMap[asmId], 130, color, 'assumption'));
+          linked = true;
+        }
+      });
+      // Fallback: link to brief
+      if (!linked) {
+        sim.links.push(new GLink(node, briefNode, 100, color, 'finding'));
+      }
+    });
+  }
+
+  // Load reviews and create review links
+  for (const r of ws.reviews) {
+    const data = await api.get(`workspaces/${opp_id}/reviews/${r.filename}`);
+    if (!data) continue;
+    const reviewer = data.reviewer || r.filename.split('-reviews-')[0]?.replace('.json', '') || '';
+    const reviewed = data.reviewed || r.filename.split('-reviews-')[1]?.replace('.json', '') || '';
+    const reviewerColor = agentColor(reviewer);
+
+    (data.reviews || data.items || []).forEach(item => {
+      const targetKey = `${reviewed}:${item.finding_id || item.findingId || ''}`;
+      const target = nodeMap[targetKey];
+      if (!target) return;
+      // Find a source node from the reviewer
+      const srcKeys = Object.keys(nodeMap).filter(k => k.startsWith(reviewer + ':'));
+      const src = nodeMap[srcKeys[Math.floor(Math.random() * srcKeys.length)]];
+      if (!src) return;
+      const isChal = ['challenge','concern','contradicts','disagree'].includes(item.assessment || item.verdict);
+      sim.links.push(new GLink(src, target, 180, reviewerColor, isChal ? 'review-challenge' : 'review-agree'));
+    });
+  }
+
+  // Artifact nodes
+  for (const a of ws.artifacts) {
+    const fn = a.filename.split('-')[0] || 'unknown';
+    const color = agentColor(fn);
+    const artNode = new GNode(`artifact:${a.filename}`, 'artifact', color, 7, {
+      ...a, agent: fn
+    });
+    artNode.cluster = fn;
+    nodeMap[`artifact:${a.filename}`] = artNode; sim.nodes.push(artNode);
+    const parentBrief = briefNodes[fn];
+    if (parentBrief) {
+      sim.links.push(new GLink(artNode, parentBrief, 70, color, 'assumption'));
+    } else {
+      sim.links.push(new GLink(artNode, center, 120, color, 'assumption'));
+    }
+  }
+
+  return { sim, nodeMap, ws };
+}
+
+// ════════════════════════════════════════════════════════════
+// INTERACTIONS
+// ════════════════════════════════════════════════════════════
+
+function setupInteractions(canvas, sim, nodeMap, renderer) {
+  let hoveredNode = null, dragNode = null, isPanning = false, panStartX = 0, panStartY = 0;
+
+  function findNodeAt(sx, sy) {
+    const { x: gx, y: gy } = renderer.screenToGraph(sx, sy);
+    let closest = null, closestDist = Infinity;
+    for (const n of sim.nodes) {
+      if (!n.alive) continue;
+      const d = Math.sqrt((n.x - gx) ** 2 + (n.y - gy) ** 2);
+      const hitR = (n.radius + 10) / renderer.zoom;
+      if (d < hitR && d < closestDist) { closest = n; closestDist = d; }
+    }
+    return closest;
+  }
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+    const newZoom = Math.min(4, Math.max(0.2, renderer.zoom * zoomFactor));
+    const rect = canvas.getBoundingClientRect();
+    const w = sim.width, h = sim.height;
+    const mx = (e.clientX - rect.left) - w / 2, my = (e.clientY - rect.top) - h / 2;
+    const scale = newZoom / renderer.zoom;
+    renderer.panX = mx - scale * (mx - renderer.panX);
+    renderer.panY = my - scale * (my - renderer.panY);
+    renderer.zoom = newZoom;
+    renderer._targetZoom = newZoom; renderer._targetPanX = renderer.panX; renderer._targetPanY = renderer.panY;
+    renderer._animating = false;
+  }, { passive: false });
+
+  canvas.addEventListener('mousemove', e => {
+    if (isPanning) {
+      renderer.panX += e.movementX; renderer.panY += e.movementY;
+      renderer._targetPanX = renderer.panX; renderer._targetPanY = renderer.panY;
+      return;
+    }
+    if (dragNode) {
+      const { x: gx, y: gy } = renderer.screenToGraph(e.clientX, e.clientY);
+      dragNode.x = gx; dragNode.y = gy; dragNode.px = gx; dragNode.py = gy;
+      return;
+    }
+    const node = findNodeAt(e.clientX, e.clientY);
+    if (node !== hoveredNode) {
+      sim.nodes.forEach(n => n.highlighted = false);
+      hideTooltip();
+      hoveredNode = node;
+      if (node) {
+        canvas.style.cursor = 'pointer'; node.highlighted = true;
+        let text = node.id;
+        if (node.type === 'finding') text = `${node.data.agent}: ${(node.data.summary || node.data.content || '').substring(0, 80)}...`;
+        else if (node.type === 'assumption') text = `${node.id} [${node.data.importance}] ${(node.data.content || '').substring(0, 60)}`;
+        else if (node.type === 'center') text = 'Opportunity';
+        else if (node.type === 'brief') text = `${node.data.agent_function} contribution`;
+        else if (node.type === 'artifact') text = node.data.filename || 'Artifact';
+        showTooltip(e.clientX, e.clientY, text);
+      } else { canvas.style.cursor = 'default'; }
+    }
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    const node = findNodeAt(e.clientX, e.clientY);
+    if (node) { dragNode = node; dragNode.pinned = true; }
+    else { isPanning = true; canvas.style.cursor = 'grab'; }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    if (dragNode && dragNode.type !== 'center') dragNode.pinned = false;
+    dragNode = null; isPanning = false; canvas.style.cursor = 'default';
+  });
+
+  canvas.addEventListener('click', e => {
+    if (isPanning) return;
+    const node = findNodeAt(e.clientX, e.clientY);
+    if (!node) { closeDrawer(); return; }
+    showNodeDetail(node);
+  });
+}
+
+function showTooltip(x, y, text) {
+  hideTooltip();
+  const tip = document.createElement('div'); tip.id = 'tooltip';
+  tip.style.left = (x + 14) + 'px'; tip.style.top = (y - 10) + 'px';
+  tip.textContent = text; document.body.appendChild(tip);
+}
+function hideTooltip() { const t = document.getElementById('tooltip'); if (t) t.remove(); }
+
+function openDrawer() { const el = document.getElementById('detail-drawer'); if (el) el.classList.add('open'); }
+function closeDrawer() { const el = document.getElementById('detail-drawer'); if (el) el.classList.remove('open'); }
+
+function showNodeDetail(node) {
+  const el = document.getElementById('drawer-content');
+  if (!el) return;
+  if (node.type === 'finding') {
+    const f = node.data;
+    const tc = TYPE_COLORS[f.type] || '#64748B';
+    const dc = f.direction === 'supports' ? '#10B981' : f.direction === 'contradicts' ? '#EF4444' : '#64748B';
+    el.innerHTML = `
+      <div class="flex items-center gap-12 mb-12">
+        <span class="drawer-dot dot-lg" style="background:${agentColor(f.agent)}"></span>
+        <span class="font-semibold" style="color:${agentColor(f.agent)}">${f.agent || f.agentLabel}</span>
+        <code>${f.id || ''}</code>
+        <span class="drawer-badge" style="background:${tc}20;color:${tc}">${(f.type||'').replace(/_/g,' ')}</span>
+        <span class="drawer-badge" style="background:${dc}20;color:${dc}">${f.direction || 'neutral'}</span>
+      </div>
+      <div class="text-primary mb-12 word-break">${formatContent(f.summary || f.content || '')}</div>
+      <div class="flex gap-20 text-base text-secondary">
+        <div><span>Confidence</span>
+          <div class="confidence-bar" style="width:100px"><div class="confidence-fill" style="width:${(f.confidence||0)*100}%;background:${agentColor(f.agent)}"></div></div>
+          <span>${f.confidence || '?'}</span></div>
+      </div>
+      ${f.source ? `<div class="finding-source drawer-meta">${esc(f.source)}</div>` : ''}`;
+  } else if (node.type === 'assumption') {
+    const asm = node.data;
+    const ic = IMP_COLORS[asm.importance] || '#64748B';
+    el.innerHTML = `
+      <div class="flex items-center gap-12 mb-12">
+        <code class="font-semibold text-lg">${asm.id || node.id}</code>
+        <span class="drawer-badge" style="background:${ic}20;color:${ic}">${asm.importance || 'medium'}</span>
+        <span class="drawer-badge">${asm.status || 'untested'}</span>
+      </div>
+      <div class="text-primary word-break">${formatContent(asm.content || '')}</div>`;
+  } else if (node.type === 'brief') {
+    const d = node.data;
+    el.innerHTML = `
+      <div class="flex items-center gap-12 mb-12">
+        <span style="width:12px;height:12px;background:#F59E0B;display:inline-block;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)"></span>
+        <span class="font-semibold text-brief">${d.agent_function || 'Agent'} Contribution</span>
+        <code>${d.filename || ''}</code>
+      </div>
+      <p class="text-secondary">${'Round ' + (d.round || '?') + ' -- ' + (d.findings || []).length + ' findings'}</p>
+      <button class="btn-primary btn--sm mt-12" onclick="toggleContribution('${state.currentOpp?.id}','${d.filename}')">Open Contribution</button>`;
+  } else if (node.type === 'artifact') {
+    const fn = node.data.filename || '';
+    el.innerHTML = `
+      <div class="flex items-center gap-12 mb-12">
+        <span style="width:12px;height:12px;transform:rotate(45deg);background:${node.color};display:inline-block"></span>
+        <span class="font-semibold" style="color:${node.color}">Artifact</span>
+      </div>
+      <code class="text-secondary">${fn}</code>
+      <button class="btn-primary btn--sm mt-12" onclick="toggleArtifact('${state.currentOpp?.id}','${fn}')">Open Artifact</button>`;
+  } else if (node.type === 'center') {
+    const opp = node.data;
+    el.innerHTML = `
+      <div class="flex items-center gap-12 mb-12">
+        <span class="drawer-dot dot-xl bg-accent"></span>
+        <span class="font-semibold text-accent">Opportunity</span>
+      </div>
+      <h3 class="opp-title-preview mb-8">${esc(opp.title || '')}</h3>
+      <p class="text-secondary">${esc(opp.description || '')}</p>`;
+  }
+  openDrawer();
+}
+
+// ════════════════════════════════════════════════════════════
+// ROUTER
+// ════════════════════════════════════════════════════════════
+
+function updateNav(view, params) {
+  const back = document.getElementById('nav-back');
+  const ctx = document.getElementById('nav-context');
+  const wsBadge = document.getElementById('nav-ws');
+  if (!back || !ctx) return;
+  const hasContext = (view === 'workspace' || view === 'orb') && params?.opp_id;
+  if (view === 'settings') {
+    back.style.display = '';
+    ctx.style.display = '';
+    ctx.textContent = 'Settings';
+  } else if (hasContext) {
+    back.style.display = '';
+    ctx.style.display = '';
+    const ws = (state.workspaces || []).find(w => w.id === params.opp_id);
+    ctx.textContent = ws ? ws.title : params.opp_id;
+  } else {
+    back.style.display = 'none';
+    ctx.style.display = 'none';
+  }
+  // Always show WS badge
+  if (wsBadge) wsBadge.style.display = '';
+}
+
+async function navigate(view, params) {
+  // Cleanup graph on navigation
+  if (state.graph) {
+    cancelAnimationFrame(state.graph.animId);
+    state.graph = null;
+  }
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  if (state._setupWs) { state._setupWs.close(); state._setupWs = null; }
+  if (state._setupPoll) { clearInterval(state._setupPoll); state._setupPoll = null; }
+  if (state._agentPoll) { clearInterval(state._agentPoll); state._agentPoll = null; }
+  if (state._activityTick) { clearInterval(state._activityTick); state._activityTick = null; }
+  if (state._processPoll) { clearInterval(state._processPoll); state._processPoll = null; }
+  ['_editAssumptions','_editSuccessSignals','_editKillSignals','_editContextRefs','_editRoster'].forEach(k => delete state[k]);
+  closeDrawer();
+  // Reset WS badge
+  const wsBadge = document.getElementById('ws-status');
+  if (wsBadge) wsBadge.innerHTML = '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
+
+  state.view = view;
+  updateNav(view, params);
+
+  // Update hash without re-triggering hashchange
+  const newHash = view === 'orb' && params?.opp_id
+    ? `#orb/${params.opp_id}`
+    : view === 'orb'
+      ? `#orb/new`
+    : view === 'settings'
+      ? '#settings'
+      : '#';
+  if (location.hash !== newHash) {
+    history.replaceState(null, '', newHash);
+  }
+
+  const main = document.getElementById('main');
+  main.scrollTop = 0;
+
+  switch (view) {
+    case 'dashboard': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderDashboard(main); break;
+    case 'orb': main.style.padding = '0'; main.style.overflow = 'hidden'; await renderOrb(main, params); break;
+    case 'settings': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderSettings(main); break;
+    default: main.innerHTML = '<div class="empty-state"><div class="empty-text">Unknown view</div></div>';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// VIEWS
+// ════════════════════════════════════════════════════════════
+
+async function renderDashboard(el) {
+  state.workspaces = await api.get('workspaces') || [];
+
+  if (state.workspaces.length === 0) {
+    el.innerHTML = `
+      <div class="section">
+        <div id="running-processes"></div>
+        <div class="empty-state">
+          <div class="empty-icon">&#9678;</div>
+          <div class="empty-text">No orbs yet</div>
+          <div class="empty-hint">Run a synthetic design sprint — parallel AI agents investigate, review, and deliver a decision brief.</div>
+          <button class="btn-primary mb-16 mt-16" onclick="navigate('orb')">Launch your first orb</button>
+        </div>
+      </div>`;
+    renderProcesses();
+    if (state._processPoll) clearInterval(state._processPoll);
+    state._processPoll = setInterval(renderProcesses, 3000);
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="section-wide">
+      <div id="running-processes"></div>
+      <div class="flex items-center justify-between mb-24">
+        <div>
+          <div class="label">Workspaces</div>
+          <div class="heading">${state.workspaces.length} Orb${state.workspaces.length !== 1 ? 's' : ''}</div>
+        </div>
+        <button class="btn-primary" onclick="navigate('orb')">+ New Orb</button>
+      </div>
+      <div class="workspace-grid" id="ws-grid"></div>
+    </div>`;
+
+  const grid = document.getElementById('ws-grid');
+  state.workspaces.forEach(ws => {
+    const statusClass = 'status-' + (ws.status || 'unknown');
+    const card = document.createElement('div');
+    card.className = 'card card-clickable workspace-card';
+    card.onclick = () => navigate('orb', { opp_id: ws.id });
+    card.style.position = 'relative';
+    card.innerHTML = `
+      <button class="ws-delete-btn" onclick="event.stopPropagation();deleteWorkspace('${ws.id}','${esc(ws.title).replace(/'/g,"\\'")}')" title="Delete workspace">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
+      <div class="ws-meta">
+        <span class="ws-type">${ws.type || 'hypothesis'}</span>
+        <span class="status-pill ${statusClass}">${ws.status || 'unknown'}</span>
+      </div>
+      <div class="ws-title">${esc(ws.title)}</div>
+      ${ws.description ? `<div class="ws-desc">${esc(ws.description)}</div>` : ''}
+      <div class="ws-footer">
+        ${ws.roster_count ? `<span class="ws-agents">${ws.roster_count} agent${ws.roster_count !== 1 ? 's' : ''}</span>` : ''}
+        ${ws.updated_at ? `<span class="ws-time">${timeAgo(ws.updated_at)}</span>` : ''}
+      </div>`;
+    grid.appendChild(card);
+  });
+
+  renderProcesses();
+  if (state._processPoll) clearInterval(state._processPoll);
+  state._processPoll = setInterval(renderProcesses, 3000);
+}
+
+async function renderProcesses() {
+  const container = document.getElementById('running-processes');
+  if (!container) return;
+  const data = await api.get('launch/processes');
+  const procs = (data?.processes || []).filter(p => p.running);
+  if (procs.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="mb-24">
+      <div class="flex items-center gap-8 mb-12">
+        <div class="label" style="margin:0">Active Processes</div>
+        <span class="status-pill status-running">${procs.length} running</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${procs.map(p => {
+          const label = p.function
+            ? `<span class="font-mono text-sm">${esc(p.opp_id)}</span><span class="text-xs" style="color:var(--text-secondary)">${esc(p.function)}</span>`
+            : `<span class="font-mono text-sm">${esc(p.key)}</span>`;
+          return `<div class="card" style="padding:8px 14px;display:flex;align-items:center;gap:12px;">
+            <span class="status-pill status-running">running</span>
+            ${label}
+            <button class="btn-secondary btn--sm" style="margin-left:auto;" onclick="killProcess('${esc(p.key)}')">Kill</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+async function killProcess(key) {
+  await api.post('launch/processes/stop', { key });
+  renderProcesses();
+}
+
+async function deleteWorkspace(id, title) {
+  if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+  const resp = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
+  if (resp.ok) navigate('dashboard');
+}
+
+
+// ══════════════════════════════════════════════════════════
+// PROGRESSIVE ORB (unified split layout)
+// ══════════════════════════════════════════════════════════
+
+function detectPhase(opp) {
+  if (!opp) return 'agree';
+  if (opp.status === 'orbiting' || opp.status === 'converging') return 'investigate';
+  if (opp.roster && opp.roster.length > 0) return 'assemble';
+  return 'agree';
+}
+
+async function renderOrb(el, params) {
+  const opp_id = params?.opp_id || null;
+
+  // Reset state
+  state.setupOppId = opp_id;
+  state._setupState = opp_id ? 'waiting' : 'idle';
+  state._setupFeedLen = 0;
+  state._setupOutputLen = 0;
+  state._loadedContext = [];
+  state._setupPlanContent = '';
+  state._setupHasPlan = false;
+  state._agentCost = 0;
+  state._agentTurns = 0;
+  state._agentDuration = 0;
+  state._agentStartTime = 0;
+  state._totalTokens = 0;
+  state._editMode = false;
+  stopEvidencePolling();
+
+  // Load opportunity if editing existing
+  let opp = {};
+  if (opp_id) {
+    try {
+      const ws = await api.get(`workspaces/${opp_id}`);
+      opp = ws?.opportunity || {};
+      state.currentOpp = opp;
+    } catch (err) { console.warn('Failed to load opportunity:', err); }
+  }
+
+  // Determine if this is an edit of an existing opportunity
+  if (opp_id && opp.title) {
+    state._editMode = true;
+  }
+
+  const phase = opp_id ? detectPhase(opp) : 'agree';
+  state.orbPhase = phase;
+
+  el.innerHTML = `
+    <div class="orb-split" data-phase="${phase}">
+      <div class="orb-left" id="inv-left"></div>
+      <div class="orb-right" id="inv-right"></div>
+    </div>`;
+
+  await renderLeftPanel(phase, opp_id, opp);
+  renderRightPanel(phase, opp_id, opp);
+
+  if (opp_id && phase !== 'investigate') {
+    // In investigate phase, renderGraphPanel connects its own WebSocket
+    connectOrbWS(opp_id);
+  }
+}
+
+async function renderLeftPanel(phase, opp_id, opp) {
+  const el = document.getElementById('inv-left');
+  if (!el) return;
+  if (phase === 'agree' || phase === 'assemble') {
+    renderChatPanel(el, opp_id, opp);
+  } else {
+    await renderGraphPanel(el, opp_id, opp);
+  }
+}
+
+function renderRightPanel(phase, opp_id, opp) {
+  const el = document.getElementById('inv-right');
+  if (!el) return;
+  switch (phase) {
+    case 'agree': renderAgreeCards(el, opp_id, opp); break;
+    case 'assemble': renderAssembleCards(el, opp_id, opp); break;
+    case 'investigate': renderOrbSidebar(el, opp_id, opp); break;
+  }
+}
+
+function renderChatPanel(el, opp_id, opp) {
+  const isEdit = opp && opp.title;
+  const chatTitle = isEdit ? 'Edit Orb' : 'New Orb';
+  const chatHint = isEdit
+    ? 'Tell the agent what you want to refine or change...'
+    : 'Describe what you want to investigate. I\'ll help you shape it.';
+  const placeholder = isEdit ? 'What would you like to refine?' : 'What should we investigate?';
+
+  el.innerHTML = `
+    <div style="padding:72px 20px 0 20px">
+      <div class="back-link" onclick="navigate('dashboard')">&larr; All Orbs</div>
+    </div>
+    <div class="setup-chat-feed" id="setup-feed">
+      <div class="setup-chat-empty">
+        <div class="setup-chat-empty-inner">
+          <div class="setup-chat-empty-title">${chatTitle}</div>
+          <div class="setup-chat-empty-hint">${chatHint}</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-bar" id="setup-input-bar">
+      <div class="chat-activity" id="setup-activity"></div>
+      <div class="chat-hints d-none" id="setup-hints"></div>
+      <div class="chat-input-wrap">
+        <textarea class="chat-input" id="setup-input"
+          placeholder="${placeholder}"
+          rows="1" onkeydown="handleSetupKey(event)"
+          oninput="handleSetupInput(event)"></textarea>
+        <button class="chat-send-btn" id="setup-send-btn" onclick="sendSetupMessage()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
+async function renderGraphPanel(el, opp_id, opp) {
+  el.innerHTML = `
+    <div class="graph-panel" id="graph-panel" style="position:relative;width:100%;height:100%">
+      <canvas id="orbital-canvas"></canvas>
+      <div class="graph-stats" id="graph-stats"></div>
+      <div class="agent-legend" id="agent-legend"></div>
+      <div class="graph-controls">
+        <button id="zoom-in-btn" title="Zoom in">+</button>
+        <button id="recenter-btn" title="Recenter">&#8982;</button>
+        <button id="zoom-out-btn" title="Zoom out">&minus;</button>
+      </div>
+    </div>`;
+
+  const result = await buildGraphFromWorkspace(opp_id);
+  if (!result) {
+    el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--color-muted)">Workspace not found</div>';
+    return;
+  }
+
+  const { sim, nodeMap, ws } = result;
+  state.currentOpp = ws.opportunity;
+
+  // Spawn all nodes
+  const cx = sim.width / 2, cy = sim.height / 2;
+  const AGENT_ANGLES = { product: Math.PI / 4, design: 3 * Math.PI / 4, data: 5 * Math.PI / 4, engineering: 7 * Math.PI / 4 };
+  const agentKeys = [...new Set(sim.nodes.filter(n => n.cluster && n.cluster !== 'assumptions').map(n => n.cluster))];
+
+  for (const n of sim.nodes) {
+    if (n.type === 'center') {
+      n.spawn(cx, cy, 0, 0); n.pinned = true;
+    } else if (n.type === 'assumption') {
+      const asmNodes = sim.nodes.filter(nn => nn.type === 'assumption');
+      const i = asmNodes.indexOf(n);
+      const angle = (i / Math.max(asmNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
+      n.spawn(cx + Math.cos(angle) * 100, cy + Math.sin(angle) * 100, Math.cos(angle) * 0.3, Math.sin(angle) * 0.3);
+    } else if (n.cluster) {
+      const ai = agentKeys.indexOf(n.cluster);
+      const homeAngle = AGENT_ANGLES[n.cluster] || (ai / Math.max(agentKeys.length, 1)) * Math.PI * 2;
+      const offset = n.type === 'brief' ? 70 : 120 + Math.random() * 60;
+      n.spawn(
+        cx + Math.cos(homeAngle) * offset + (Math.random() - 0.5) * 40,
+        cy + Math.sin(homeAngle) * offset + (Math.random() - 0.5) * 40,
+        Math.cos(homeAngle) * 0.2, Math.sin(homeAngle) * 0.2
+      );
+    } else {
+      n.spawn(cx + (Math.random() - 0.5) * 200, cy + (Math.random() - 0.5) * 200, 0, 0);
+    }
+  }
+  sim.links.forEach(l => { if (l.source.alive && l.target.alive) l.alive = true; });
+
+  updateGraphStats(sim, agentKeys);
+  renderAgentLegend(agentKeys);
+
+  const canvas = document.getElementById('orbital-canvas');
+  const renderer = new Renderer(canvas, sim);
+  setupInteractions(canvas, sim, nodeMap, renderer);
+
+  const recenterBtn = document.getElementById('recenter-btn');
+  const zoomInBtn = document.getElementById('zoom-in-btn');
+  const zoomOutBtn = document.getElementById('zoom-out-btn');
+  if (recenterBtn) recenterBtn.onclick = () => renderer.animateTo(1, 0, 0);
+  if (zoomInBtn) zoomInBtn.onclick = () => renderer.animateTo(Math.min(4, renderer.zoom * 1.3), renderer.panX, renderer.panY);
+  if (zoomOutBtn) zoomOutBtn.onclick = () => renderer.animateTo(Math.max(0.2, renderer.zoom / 1.3), renderer.panX, renderer.panY);
+
+  const resizeHandler = () => renderer.resize();
+  window.addEventListener('resize', resizeHandler);
+
+  function animate(time) {
+    sim.tick();
+    renderer.render(time);
+    state.graph = { sim, renderer, nodeMap, animId: requestAnimationFrame(animate), resizeHandler, opp_id };
+  }
+  state.graph = { sim, renderer, nodeMap, animId: requestAnimationFrame(animate), resizeHandler, opp_id };
+
+  // Live WebSocket for graph updates
+  connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws);
+
+  // Poll agent status
+  pollAgentStatus(opp_id);
+}
+
+function renderAgreeCards(el, opp_id, opp) {
+  if (!opp || !opp.title) {
+    // Initial empty state
+    el.innerHTML = `
+      <div class="setup-card">
+        <div class="setup-card-title">Progress</div>
+        <div class="setup-card-body">
+          <div class="setup-phases">
+            <div class="setup-phase active"><span class="setup-phase-dot"></span><span class="text-xs">Refining</span></div>
+            <span class="setup-phase-line"></span>
+            <div class="setup-phase"><span class="setup-phase-dot"></span><span class="text-xs">Assembling</span></div>
+            <span class="setup-phase-line"></span>
+            <div class="setup-phase"><span class="setup-phase-dot"></span><span class="text-xs">Ready</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="setup-card">
+        <div class="setup-card-title">Opportunity</div>
+        <div class="setup-card-body"><div class="muted-hint">Describe your orb to begin...</div></div>
+      </div>
+      <div class="setup-card">
+        <div class="setup-card-title">Context</div>
+        <div class="setup-card-body"><div class="muted-hint">Agent will load relevant context...</div></div>
+      </div>
+      <div class="setup-card">
+        <div class="setup-card-title">Connectors</div>
+        <div class="setup-card-body" id="setup-connectors-init"><div class="muted-hint">Loading...</div></div>
+      </div>`;
+    loadConnectors();
+    return;
+  }
+
+  // Use existing renderPreviewCards but without Roster card
+  const catalog = state._setupCatalog || [];
+  const loadedContext = state._loadedContext || [];
+  const full = renderPreviewCards(opp, catalog, loadedContext);
+  el.innerHTML = full;
+
+  // Remove the Roster card from DOM
+  const cards = el.querySelectorAll('.setup-card');
+  cards.forEach(card => {
+    const title = card.querySelector('.setup-card-title');
+    if (title && title.textContent.trim() === 'Roster') {
+      card.remove();
+    }
+  });
+}
+
+// ── Agent icon SVGs ──────────────────────────────────────
+const AGENT_ICONS = {
+  product: `<svg viewBox="0 0 20 20"><path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 14.6l-4.8 2.3.9-5.4L2.2 7.7l5.4-.8z"/></svg>`,
+  design: `<svg viewBox="0 0 20 20"><path d="M3 17.25V14l9.53-9.53a1.5 1.5 0 012.12 0l1.88 1.88a1.5 1.5 0 010 2.12L7 18H3.75A.75.75 0 013 17.25zM14 5l1 1"/></svg>`,
+  data: `<svg viewBox="0 0 20 20"><path d="M3 3v14h14M6 14V9m4 5V7m4 7V5"/></svg>`,
+  engineering: `<svg viewBox="0 0 20 20"><path d="M10 2a3.5 3.5 0 00-1 6.86V11H7a2 2 0 00-2 2v1.14a3.5 3.5 0 102 0V13h6v1.14a3.5 3.5 0 102 0V13a2 2 0 00-2-2h-2V8.86A3.5 3.5 0 0010 2z"/></svg>`,
+  'commercial-strategy': `<svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 2v6l4.5 2.5"/></svg>`,
+  analyst: `<svg viewBox="0 0 20 20"><path d="M2 10a8 8 0 1116 0H2zm8-6v6h6"/></svg>`,
+  research: `<svg viewBox="0 0 20 20"><path d="M8 3a5 5 0 014.33 7.5L16 14.17l-1.42 1.42L10.91 12A5 5 0 118 3zm0 2a3 3 0 100 6 3 3 0 000-6z"/></svg>`,
+  financial: `<svg viewBox="0 0 20 20"><path d="M10 2v16m-4-4h8M6 6h8M4 10h12"/></svg>`,
+  legal: `<svg viewBox="0 0 20 20"><path d="M10 2L3 6v2h14V6L10 2zM4 10h2v6H4zm5 0h2v6H9zm5 0h2v6h-2zM3 18h14"/></svg>`,
+  'brand-marketing': `<svg viewBox="0 0 20 20"><path d="M3 5h14l-2 10H5L3 5zm2-3h10M8 15v3m4-3v3"/></svg>`,
+  'customer-voice': `<svg viewBox="0 0 20 20"><path d="M10 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4zM4 10v1a6 6 0 0012 0v-1m-6 8v2m-3 0h6"/></svg>`,
+  'data-science': `<svg viewBox="0 0 20 20"><path d="M10 2a6 6 0 016 6v1a4 4 0 01-4 4h-1v4H9v-4H8a4 4 0 01-4-4V8a6 6 0 016-6zm-2 5h1m2 0h1"/></svg>`,
+  'ux-writing': `<svg viewBox="0 0 20 20"><path d="M4 4h12v12H4zM7 8h6M7 11h4"/></svg>`,
+  'tech-lead': `<svg viewBox="0 0 20 20"><path d="M7 3l-4 7 4 7h6l4-7-4-7H7zm3 5v4m0-6v0"/></svg>`,
+};
+
+function agentIcon(fn, color) {
+  const svg = AGENT_ICONS[fn];
+  if (svg) return svg;
+  // Fallback: styled initial letter
+  const letter = fn.replace(/^[^a-z]*/i, '').charAt(0).toUpperCase() || '?';
+  return `<span style="font-size:18px;font-weight:800;line-height:1">${letter}</span>`;
+}
+
+function humanizeFunction(fn) {
+  return fn.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderAssembleCards(el, opp_id, opp) {
+  const roster = opp.roster || [];
+  state._excludedAgents = state._excludedAgents || new Set();
+  state._assembleRoster = roster;
+
+  // Progress card
+  let html = `
+    <div class="setup-card">
+      <div class="setup-card-title">Progress</div>
+      <div class="setup-card-body">
+        <div class="setup-phases">
+          <div class="setup-phase complete"><span class="setup-phase-dot"></span><span class="text-xs">Refined</span></div>
+          <span class="setup-phase-line"></span>
+          <div class="setup-phase active"><span class="setup-phase-dot"></span><span class="text-xs">Assembling</span></div>
+          <span class="setup-phase-line"></span>
+          <div class="setup-phase"><span class="setup-phase-dot"></span><span class="text-xs">Ready</span></div>
+        </div>
+      </div>
+    </div>`;
+
+  // Condensed Opportunity card
+  const oppType = opp.type ? `<span style="background:rgba(59,130,246,0.12);color:var(--color-info);padding:2px 8px;border-radius:var(--radius-xs);font-size:var(--text-xs);margin-left:8px">${esc(opp.type)}</span>` : '';
+  html += `
+    <div class="setup-card">
+      <div class="setup-card-title" style="display:flex;align-items:center">Opportunity${oppType}</div>
+      <div class="setup-card-body">
+        <div style="font-weight:600;font-size:var(--text-sm);color:var(--text-primary)">${esc(opp.title || opp_id)}</div>
+        ${opp.description ? `<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(opp.description)}</div>` : ''}
+      </div>
+    </div>`;
+
+  // Agent cards (2x2 grid)
+  html += `<div class="agent-card-grid">`;
+  for (const entry of roster) {
+    const fn = rosterFn(entry);
+    const color = agentColor(fn);
+    const excluded = state._excludedAgents.has(fn);
+    const trackCount = (entry.investigation_tracks || []).length;
+
+    html += `
+      <div class="agent-card${excluded ? ' excluded' : ''}" data-fn="${esc(fn)}" onclick="openAgentDetail(this, event)">
+        <div class="agent-card__accent" style="background:${color}"></div>
+        <div class="agent-card__header">
+          <div class="agent-card__icon" style="background:${color}">${agentIcon(fn, color)}</div>
+          <div class="agent-card__info">
+            <div class="agent-card__title">${esc(humanizeFunction(fn))}</div>
+            <div class="agent-card__track-count">${trackCount} track${trackCount !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="agent-card__actions">
+            <div class="agent-toggle${excluded ? '' : ' on'}" onclick="toggleAgentInclude(event, '${esc(fn)}')">
+              <div class="agent-toggle__knob"></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+  html += `</div>`;
+
+  // Roster summary
+  const included = roster.filter(r => !state._excludedAgents.has(rosterFn(r)));
+  const totalTracks = included.reduce((sum, r) => sum + (r.investigation_tracks || []).length, 0);
+  html += `
+    <div class="roster-summary" style="margin-top:8px">
+      <div class="roster-summary__count">${included.length} agent${included.length !== 1 ? 's' : ''} ready</div>
+      <div class="roster-summary__tracks">${totalTracks} track${totalTracks !== 1 ? 's' : ''}</div>
+    </div>`;
+
+  el.innerHTML = html;
+}
+
+function openAgentDetail(card, event) {
+  if (event.target.closest('.agent-toggle')) return;
+  const fn = card.dataset.fn;
+  const roster = state._assembleRoster || [];
+  const entry = roster.find(r => rosterFn(r) === fn);
+  if (!entry) return;
+
+  // Highlight active card
+  document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+
+  const color = agentColor(fn);
+  const tracks = entry.investigation_tracks || [];
+  const excluded = state._excludedAgents.has(fn);
+
+  let html = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <div class="agent-card__icon" style="background:${color};width:48px;height:48px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:var(--text-base)">${agentIcon(fn, color)}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:var(--text-md);color:var(--text-primary);text-transform:capitalize">${esc(humanizeFunction(fn))}</div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:2px">${tracks.length} track${tracks.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="agent-toggle${excluded ? '' : ' on'}" onclick="toggleAgentInclude(event, '${esc(fn)}')" style="flex-shrink:0">
+        <div class="agent-toggle__knob"></div>
+      </div>
+    </div>`;
+
+  // Tracks
+  if (tracks.length) {
+    html += `<div style="font-size:var(--text-xs);font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">Tracks</div>`;
+    for (const t of tracks) {
+      if (typeof t === 'string') {
+        html += `<div class="agent-card__track"><div class="agent-card__track-name">${esc(t)}</div></div>`;
+      } else {
+        html += `<div class="agent-card__track" style="margin-bottom:14px">
+          <div class="agent-card__track-name" style="font-size:var(--text-sm);margin-bottom:4px">${esc(t.track || 'Track')}</div>
+          ${t.question ? `<div class="agent-card__track-question" style="font-size:var(--text-xs);color:var(--text-muted);line-height:1.5">${esc(t.question)}</div>` : ''}
+          ${t.expected_artifacts && t.expected_artifacts.length ? `<div class="agent-card__artifacts" style="margin-top:6px">${t.expected_artifacts.map(a => `<span class="agent-card__artifact-tag">${esc(a)}</span>`).join('')}</div>` : ''}
+        </div>`;
+      }
+    }
+  }
+
+  openSlideOver(humanizeFunction(fn), html);
+}
+
+function toggleAgentInclude(event, fn) {
+  event.stopPropagation();
+  const toggle = event.currentTarget;
+  const card = toggle.closest('.agent-card');
+  if (state._excludedAgents.has(fn)) {
+    state._excludedAgents.delete(fn);
+    toggle.classList.add('on');
+    card.classList.remove('excluded');
+  } else {
+    state._excludedAgents.add(fn);
+    toggle.classList.remove('on');
+    card.classList.add('excluded');
+  }
+  // Update roster summary
+  const opp = state.currentOpp || {};
+  const roster = opp.roster || [];
+  const included = roster.filter(r => !state._excludedAgents.has(rosterFn(r)));
+  const totalTracks = included.reduce((sum, r) => sum + (r.investigation_tracks || []).length, 0);
+  const summary = document.querySelector('.roster-summary');
+  if (summary) {
+    summary.querySelector('.roster-summary__count').textContent = `${included.length} agent${included.length !== 1 ? 's' : ''} ready`;
+    summary.querySelector('.roster-summary__tracks').textContent = `${totalTracks} track${totalTracks !== 1 ? 's' : ''}`;
+  }
+}
+
+function renderOrbSidebar(el, opp_id, opp) {
+  // Reuse existing sidebar structure but rendered into the right panel
+  el.innerHTML = `
+    <div class="sidebar-scroll" style="padding:0">
+      <div class="flex items-center gap-10 mb-10 justify-end" style="padding:0 0 4px">
+        <div class="live-badge d-none" id="agent-status"><span class="live-pulse bg-brief"></span> agents running</div>
+      </div>
+      <div id="sidebar-header"></div>
+      <div id="sidebar-content"></div>
+    </div>
+    <div class="chat-input-bar d-none" id="chat-input-bar">
+      <div id="chat-hints" class="chat-hints d-none"></div>
+      <div class="chat-input-wrap">
+        <input type="text" class="chat-input" id="chat-input" placeholder="Message agents or /command..." onkeydown="handleChatKey(event)" oninput="handleChatInput(event)">
+        <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()" title="Send">&uarr;</button>
+      </div>
+    </div>`;
+
+  // Render sidebar header
+  const statusClass = 'status-' + (opp.status || 'unknown');
+  const sidebarHeader = document.getElementById('sidebar-header');
+  if (sidebarHeader) sidebarHeader.innerHTML = `
+    <div class="flex items-center gap-12 mb-8 flex-wrap">
+      <span class="status-pill ${statusClass}">${opp.status}</span>
+      <span class="text-xs font-mono text-muted">${opp.id || opp_id}</span>
+      <button class="edit-opp-btn" onclick="openEditOpportunity('${opp_id}')" title="Edit opportunity">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
+    <div class="subheading mb-12 lh-14">${esc(opp.title || '')}</div>
+    <div class="quality-strip" id="quality-strip" onclick="switchSidebarTab('quality')"></div>`;
+
+  // Load quality strip summary
+  loadQualityStrip(opp_id);
+
+  // Fetch full workspace to render sidebar tabs
+  api.get(`workspaces/${opp_id}`).then(ws => {
+    if (!ws) return;
+    if (!state.sidebarTab && opp.status === 'assembled' && opp.roster?.length) {
+      state.sidebarTab = 'agents';
+    }
+    renderSidebar(ws, opp_id);
+  }).catch(err => console.warn('renderOrbSidebar error:', err));
+}
+
+function loadConnectors() {
+  state._enabledConnectors = state._enabledConnectors || new Set();
+  api.get('catalog/tools').then(raw => {
+    const tools = Array.isArray(raw) ? raw : Object.entries(raw || {}).map(([id, v]) => ({ id, name: v?.name || id, ...v }));
+    state._setupCatalog = tools;
+    const el = document.getElementById('setup-connectors-init');
+    if (!el) return;
+    if (tools.length > 0) {
+      tools.forEach(t => state._enabledConnectors.add(t.id || t.name));
+      el.innerHTML = '<div class="setup-connectors">' + tools.map(t => {
+        const tid = esc(t.id || t.name || 'tool');
+        return `<div class="setup-connector active" data-tool-id="${tid}" onclick="toggleConnector(this)">` +
+          `<div class="setup-toggle-track"><div class="setup-toggle-knob"></div></div>` +
+          `<span>${esc(t.name || t.id || 'tool')}</span></div>`;
+      }).join('') + '</div>';
+    } else {
+      el.innerHTML = '<div class="muted-hint">No connectors configured</div>';
+    }
+  }).catch(err => {
+    console.warn('Failed to load connectors:', err);
+    const el = document.getElementById('setup-connectors-init');
+    if (el) el.innerHTML = '<div class="muted-hint">No connectors configured</div>';
+  });
+}
+
+async function transitionToPhase(newPhase, opp_id) {
+  if (state.orbPhase === newPhase) return;
+  const oldPhase = state.orbPhase;
+  state.orbPhase = newPhase;
+
+  const container = document.querySelector('.orb-split');
+  const left = document.getElementById('inv-left');
+  const right = document.getElementById('inv-right');
+  if (!container || !left || !right) return;
+
+  // Left panel changes only when entering/leaving investigate phase
+  const leftChanges = (oldPhase === 'investigate') !== (newPhase === 'investigate');
+
+  right.classList.add('phase-exit');
+  if (leftChanges) left.classList.add('phase-exit');
+
+  await new Promise(r => setTimeout(r, 250));
+
+  container.dataset.phase = newPhase;
+  const opp = state.currentOpp || {};
+  renderRightPanel(newPhase, opp_id, opp);
+  if (leftChanges) await renderLeftPanel(newPhase, opp_id, opp);
+
+  right.classList.remove('phase-exit');
+  right.classList.add('phase-enter');
+  if (leftChanges) { left.classList.remove('phase-exit'); left.classList.add('phase-enter'); }
+
+  await new Promise(r => setTimeout(r, 250));
+  right.classList.remove('phase-enter');
+  if (leftChanges) left.classList.remove('phase-enter');
+}
+
+function connectOrbWS(opp_id) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let opened = false;
+  let socket;
+  try { socket = new WebSocket(`${proto}//${location.host}/ws/workspace/${opp_id}`); }
+  catch { return; } // WS not supported
+  state._setupWs = socket;
+
+  const badge = document.getElementById('ws-status');
+  if (badge) badge.innerHTML = '<span class="live-pulse"></span> connecting... <span class="ws-chevron">▾</span>';
+
+  socket.onopen = () => {
+    opened = true;
+    if (badge) badge.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
+  };
+
+  socket.onmessage = async (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.type === 'opportunity' || event.type === 'contribution' || event.type === 'artifact') {
+        await updateOrbPreview(opp_id);
+      }
+    } catch (err) { /* ignore parse errors */ }
+  };
+
+  socket.onerror = () => {};
+
+  socket.onclose = () => {
+    state._setupWs = null;
+    const b = document.getElementById('ws-status');
+    if (!b) return;
+    // Never connected → stay offline; was connected → show disconnected
+    b.innerHTML = opened
+      ? '<span class="status-dot" style="background:var(--color-counter)"></span> disconnected <span class="ws-chevron">▾</span>'
+      : '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
+  };
+}
+
+async function updateOrbPreview(opp_id) {
+  const el = document.getElementById('inv-right');
+  if (!el) return;
+  try {
+    const ws = await api.get(`workspaces/${opp_id}`);
+    const opp = ws?.opportunity || {};
+    state.currentOpp = opp;
+
+    // Check for phase transition
+    const newPhase = detectPhase(opp);
+    if (newPhase !== state.orbPhase) {
+      transitionToPhase(newPhase, opp_id);
+      return;
+    }
+
+    // Fetch catalog tools once
+    if (!state._setupCatalog) {
+      try {
+        const raw = await api.get('catalog/tools');
+        state._setupCatalog = Array.isArray(raw) ? raw : Object.entries(raw || {}).map(([id, v]) => ({ id, name: v?.name || id, ...v }));
+      } catch (err) { console.warn('Failed to load catalog tools:', err); state._setupCatalog = []; }
+    }
+
+    // Re-render right panel with updated data
+    renderRightPanel(state.orbPhase, opp_id, opp);
+  } catch (err) {
+    console.warn('updateOrbPreview error:', err);
+  }
+}
+
+function toggleConnector(el) {
+  const id = el.dataset.toolId;
+  el.classList.toggle('active');
+  if (el.classList.contains('active')) {
+    state._enabledConnectors.add(id);
+  } else {
+    state._enabledConnectors.delete(id);
+  }
+}
+
+// ── Setup Chat Functions ───────────────────────────────────
+async function handleFirstMessage(text) {
+  // Extract title from first sentence
+  const title = (text.split(/[.!?\n]/)[0] || '').trim().slice(0, 80) || text.slice(0, 80);
+  if (title.length < 10) { toast('Please describe in more detail (at least 10 characters)'); return; }
+
+  state._setupState = 'running';
+  updateActivityIndicator();
+  updateSendButton(true);
+
+  // Show user message in feed
+  appendSetupMessage('you', 'var(--color-data)', text, false);
+
+  try {
+    // Create workspace
+    const opp = await api.post('workspaces', {
+      type: 'hypothesis',
+      title: title,
+      description: text,
+      context_refs: [],
+      assumptions: [],
+      success_signals: [],
+      kill_signals: [],
+      enabled_tools: Array.from(state._enabledConnectors || []),
+    });
+    state.setupOppId = opp.id;
+
+    // Update hash to include opp_id so refresh works
+    if (state.view === 'orb') {
+      history.replaceState(null, '', `#orb/${opp.id}`);
+    }
+
+    // Set status to assembled (required for launch)
+    await api.patch(`workspaces/${opp.id}/opportunity`, { status: 'assembled' });
+
+    // Launch Phase 0 agent
+    await api.post(`launch/${opp.id}/start`, {});
+
+    // Connect WebSocket for live workspace updates
+    connectOrbWS(opp.id);
+
+    // Start polling agent output
+    pollSetupAgent(opp.id);
+
+    // Show initial workspace preview
+    updateOrbPreview(opp.id);
+  } catch (err) { toast('Error: ' + err.message); }
+}
+
+async function sendSetupMessage(fromBtn) {
+  const input = document.getElementById('setup-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  input.style.height = 'auto';
+  const hints = document.getElementById('setup-hints');
+  if (hints) hints.style.display = 'none';
+
+  if (state._setupState === 'idle') {
+    // First message — create workspace and launch agent
+    await handleFirstMessage(text);
+    return;
+  }
+
+  if (state._setupState === 'waiting' && state._editMode) {
+    // Edit mode first message — launch fresh agent on existing workspace
+    state._editMode = false;
+    appendSetupMessage('you', 'var(--color-data)', text, false);
+    showThinking('setup-feed');
+    if (!state.setupOppId) return;
+    try {
+      state._setupState = 'running';
+      state._setupSentAt = Date.now();
+      updateActivityIndicator();
+      updateSendButton(true);
+      await api.post(`launch/${state.setupOppId}/start`, {});
+      connectOrbWS(state.setupOppId);
+      pollSetupAgent(state.setupOppId);
+      updateOrbPreview(state.setupOppId);
+      await api.post(`launch/${state.setupOppId}/send`, { message: text });
+    } catch (err) { toast('Error: ' + err.message); removeThinking('setup-feed'); }
+    return;
+  }
+
+  // Subsequent messages — send to running agent or resume via --resume
+  appendSetupMessage('you', 'var(--color-data)', text, false);
+  showThinking('setup-feed');
+  if (!state.setupOppId) return;
+  try {
+    state._setupState = 'running';
+    state._agentDuration = 0;
+    state._agentStartTime = Date.now();
+    updateActivityIndicator();
+    updateSendButton(true);
+    // Restart live timer tick
+    if (state._activityTick) clearInterval(state._activityTick);
+    state._activityTick = setInterval(() => {
+      if (state._agentStartTime) updateActivityIndicator();
+      else { clearInterval(state._activityTick); state._activityTick = null; }
+    }, 1000);
+    // Mark when we sent so poll doesn't race ahead of subprocess startup
+    state._setupSentAt = Date.now();
+    await api.post(`launch/${state.setupOppId}/send`, { message: text });
+  } catch (err) { console.warn('sendSetupMessage error:', err); removeThinking('setup-feed'); }
+}
+
+function handleSetupKey(e) {
+  const hints = document.getElementById('setup-hints');
+  if (hints && hints.style.display !== 'none') {
+    if (e.key === 'Escape') { hints.style.display = 'none'; return; }
+    if (e.key === 'Tab' || (e.key === 'Enter' && hints.querySelector('.chat-hint-active'))) {
+      e.preventDefault();
+      const active = hints.querySelector('.chat-hint-active') || hints.querySelector('.chat-hint');
+      if (active) {
+        document.getElementById('setup-input').value = active.dataset.value + ' ';
+        hints.style.display = 'none';
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = [...hints.querySelectorAll('.chat-hint')];
+      const idx = items.findIndex(i => i.classList.contains('chat-hint-active'));
+      items.forEach(i => i.classList.remove('chat-hint-active'));
+      const next = e.key === 'ArrowDown' ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+      items[next]?.classList.add('chat-hint-active');
+      return;
+    }
+  }
+  // Escape stops agent when hints are not visible
+  if (e.key === 'Escape' && (!hints || hints.style.display === 'none')) {
+    if (state._setupState === 'running' || state._setupState === 'plan_ready') {
+      stopAgent();
+    }
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendSetupMessage();
+  }
+}
+
+function handleSetupInput(e) {
+  // Auto-grow textarea
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+
+  const val = e.target.value;
+  const hints = document.getElementById('setup-hints');
+  if (!hints) return;
+  if (val.startsWith('/')) {
+    const q = val.toLowerCase();
+    const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(q));
+    if (matches.length && val.indexOf(' ') === -1) {
+      hints.innerHTML = matches.map((m, i) =>
+        `<div class="chat-hint${i === 0 ? ' chat-hint-active' : ''}" data-value="${m.cmd}">
+          <span class="text-accent">${m.cmd}</span>
+          <span class="text-muted ml-8">${m.desc}</span>
+        </div>`
+      ).join('');
+      hints.style.display = '';
+      return;
+    }
+  }
+  // @ references — roster agents
+  const atMatch = val.match(/@(\S*)$/);
+  if (atMatch) {
+    const q = atMatch[1].toLowerCase();
+    const refs = [];
+    const roster = state.workspaceData?.opportunity?.roster;
+    if (roster) refs.push(...roster.map(r => ({ name: r.function, type: 'agent' })));
+    const matches = refs.filter(r => r.name.toLowerCase().includes(q)).slice(0, 6);
+    if (matches.length) {
+      hints.innerHTML = matches.map((m, i) =>
+        `<div class="chat-hint${i === 0 ? ' chat-hint-active' : ''}" data-value="${val.slice(0, val.length - atMatch[0].length)}@${m.name}">
+          <span class="text-design">@${m.name}</span>
+          <span class="text-muted ml-8">${m.type}</span>
+        </div>`
+      ).join('');
+      hints.style.display = '';
+      return;
+    }
+  }
+  hints.style.display = 'none';
+}
+
+async function stopAgent() {
+  const opp_id = state.setupOppId || state.currentOpp?.id;
+  if (!opp_id) return;
+  try {
+    const r = await fetch(`/api/launch/${opp_id}/stop`, { method: 'POST' });
+    const d = await r.json();
+    if (d.stopped) {
+      if (state._setupPoll) { clearInterval(state._setupPoll); state._setupPoll = null; }
+      if (state._agentPoll) { clearInterval(state._agentPoll); state._agentPoll = null; }
+      state._setupState = 'waiting';
+      state._agentStartTime = null;
+      if (state._activityTick) { clearInterval(state._activityTick); state._activityTick = null; }
+      updateActivityIndicator();
+      updateSendButton(false);
+      const feedId = state.view === 'orb' ? 'agent-feed' : 'setup-feed';
+      removeThinking(feedId);
+      const feed = document.getElementById(feedId);
+      if (feed) {
+        const div = document.createElement('div');
+        div.className = 'ai-chat-msg';
+        div.innerHTML = '<span class="ai-chat-label text-counter">stopped</span><span class="ai-chat-text">Agent stopped.</span>';
+        feed.appendChild(div);
+        feed.scrollTop = feed.scrollHeight;
+      }
+      const chatInput = document.getElementById(state.view === 'orb' ? 'chat-input' : 'setup-input');
+      if (chatInput) { chatInput.disabled = false; chatInput.focus(); }
+    }
+  } catch (err) { console.error('Stop failed:', err); }
+}
+
+function updateSendButton(running) {
+  const btnId = state.view === 'orb' ? 'chat-send-btn' : 'setup-send-btn';
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  if (running) {
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    btn.onclick = stopAgent;
+    btn.title = 'Stop agent (Esc)';
+    btn.classList.add('chat-send-btn--stop');
+    btn.disabled = false;
+  } else {
+    if (btnId === 'setup-send-btn') {
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+      btn.onclick = sendSetupMessage;
+    } else {
+      btn.innerHTML = '&uarr;';
+      btn.onclick = sendChatMessage;
+    }
+    btn.title = 'Send';
+    btn.classList.remove('chat-send-btn--stop');
+  }
+}
+
+function appendSetupMessage(label, color, text, isTool) {
+  const feed = document.getElementById('setup-feed');
+  if (!feed) return;
+  const empty = feed.querySelector('.setup-chat-empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'ai-chat-msg' + (isTool ? ' ai-tool' : '') + (label === 'you' ? ' ai-user' : '');
+  div.innerHTML = `<span class="ai-chat-label" style="color:${color}">${esc(label)}</span><span class="ai-chat-text">${esc(text)}</span>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function pollSetupAgent(opp_id) {
+  if (state._setupPoll) clearInterval(state._setupPoll);
+  state._setupOutputLen = 0;
+  state._setupFeedLen = 0;
+  state._agentStartTime = Date.now();
+  state._agentDuration = 0;
+  state._agentCost = 0;
+  state._agentTurns = 0;
+  state._totalTokens = 0;
+  state._setupHasPlan = false;
+  state._setupPlanContent = '';
+  state._setupInitSeen = false;
+
+  async function check() {
+    try {
+      const s = await api.get(`launch/${opp_id}/status`);
+      if (!document.getElementById('setup-feed')) { clearInterval(state._setupPoll); return; }
+
+      if (s.output?.length) {
+        updateSetupFeed(s.output);
+        state._setupOutputLen = s.output.length;
+      }
+
+      // Grace period: don't detect "finished" within 5s of sending (subprocess startup race)
+      const inGracePeriod = state._setupSentAt && (Date.now() - state._setupSentAt < 5000);
+
+      if (!s.running && state._setupHasPlan) {
+        state._setupState = 'plan_ready';
+        showSetupApproveButton();
+      } else if (!s.running && !inGracePeriod && state._setupOutputLen > 0 && state._setupState === 'running') {
+        // Agent finished a turn — keep chat open for follow-up (multi-turn via --resume)
+        state._setupState = 'waiting';
+        state._agentTurns++;
+        state._setupSentAt = null;
+      } else if (!s.running && !inGracePeriod && state._setupState === 'running') {
+        // Agent stopped without producing output or a plan — likely crashed
+        const feed = document.getElementById('setup-feed');
+        if (feed) {
+          const div = document.createElement('div');
+          div.className = 'ai-chat-msg';
+          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly. Send another message to resume.</span>';
+          feed.appendChild(div);
+          feed.scrollTop = feed.scrollHeight;
+        }
+        state._setupState = 'waiting';
+        state._setupSentAt = null;
+      } else if (s.running) {
+        state._setupState = 'running';
+        state._setupSentAt = null;
+      }
+
+      // Chat input — always typeable, placeholder signals state
+      const chatInput = document.getElementById('setup-input');
+      const chatBtn = document.getElementById('setup-send-btn');
+      if (chatInput) {
+        chatInput.disabled = false;
+        if (state._setupState === 'waiting') {
+          chatInput.focus();
+          chatInput.placeholder = 'Reply to continue the conversation...';
+        } else if (state._setupState === 'running') {
+          chatInput.placeholder = 'Agent is thinking...';
+        }
+      }
+      if (chatBtn) chatBtn.disabled = state._setupState === 'plan_ready';
+      if (!s.running) updateSendButton(false);
+      else updateSendButton(true);
+      updateActivityIndicator();
+    } catch (err) { console.warn('pollSetupAgent network error:', err); }
+  }
+  check();
+  state._setupPoll = setInterval(check, 3000);
+  // Live-tick the activity timer every second while start time is set
+  if (state._activityTick) clearInterval(state._activityTick);
+  state._activityTick = setInterval(() => {
+    if (state._agentStartTime) updateActivityIndicator();
+    else { clearInterval(state._activityTick); state._activityTick = null; }
+  }, 1000);
+}
+
+function updateActivityIndicator() {
+  const el = document.getElementById('setup-activity');
+  if (!el) return;
+
+  // Status label
+  let statusHtml = '';
+  let isActive = false;
+  if (state._setupState === 'running') {
+    statusHtml = '<span class="activity-dot"></span> Thinking <span class="text-muted" style="font-size:10px;margin-left:4px">Esc to stop</span>';
+    isActive = true;
+  } else if (state._setupState === 'waiting') {
+    statusHtml = 'Ready';
+  } else if (state._setupState === 'plan_ready') {
+    statusHtml = 'Plan ready';
+  }
+
+  // Meta: tokens + time
+  const meta = [];
+  if (state._totalTokens > 0) {
+    meta.push(state._totalTokens > 1_000_000
+      ? (state._totalTokens / 1_000_000).toFixed(1) + 'M tok'
+      : state._totalTokens > 1_000
+        ? (state._totalTokens / 1_000).toFixed(0) + 'K tok'
+        : state._totalTokens + ' tok');
+  }
+  if (state._agentStartTime) {
+    const elapsed = state._agentDuration || (Date.now() - state._agentStartTime);
+    const s = Math.floor(elapsed / 1000);
+    const m = Math.floor(s / 60);
+    meta.push(m > 0 ? `${m}m ${s % 60}s` : `${s}s`);
+  }
+
+  if (!statusHtml && !meta.length) {
+    el.innerHTML = '';
+    el.className = 'chat-activity';
+    return;
+  }
+
+  el.className = isActive ? 'chat-activity active' : 'chat-activity';
+  el.innerHTML =
+    (statusHtml ? `<span class="activity-status">${statusHtml}</span>` : '') +
+    (meta.length ? `<span class="activity-meta">${meta.join(' · ')}</span>` : '');
+}
+
+function updateSetupFeed(lines) {
+  const feed = document.getElementById('setup-feed');
+  if (!feed) return;
+  let start = state._setupFeedLen || 0;
+  // Detect output reset (new process via --resume)
+  if (lines.length < start) start = 0;
+  if (lines.length <= start) return;
+  const newLines = lines.slice(start);
+  state._setupFeedLen = lines.length;
+  const messages = parseStreamJson(newLines, { fullText: true, suppressDone: true });
+  if (!messages.length) return;
+
+  removeThinking('setup-feed');
+  const empty = feed.querySelector('.setup-chat-empty');
+  if (empty) empty.remove();
+
+  for (const m of messages) {
+    // Detect context reads from tool calls
+    if (m.isTool && m.label === 'read' && m.text) {
+      const ctxMatch = m.text.match(/^(L[12][ab]?)\/([^/\s]+)/) || m.text.match(/data\/context\/([^/]+)\/([^/\s]+)/);
+      if (ctxMatch) {
+        const layerType = ctxMatch[1];
+        const fileName = ctxMatch[2];
+        const existing = state._loadedContext.find(c => c.fileName === fileName);
+        if (!existing) {
+          state._loadedContext.push({ layerType, fileName, name: fileName.replace('.json', '') });
+          // Re-render preview to show new context layer
+          if (state.setupOppId) {
+            updateOrbPreview(state.setupOppId);
+          }
+        }
+      }
+    }
+
+    // Detect plan mode
+    if (m.label === 'plan') {
+      state._setupHasPlan = true;
+    }
+
+    const div = document.createElement('div');
+    div.className = 'ai-chat-msg' + (m.isTool ? ' ai-tool' : '');
+    if (m.isFullText) {
+      div.innerHTML = `<span class="ai-chat-label" style="color:${m.color}">${esc(m.label)}</span><div class="ai-chat-text flex-1">${renderMarkdown(m.text)}</div>`;
+    } else {
+      div.innerHTML = `<span class="ai-chat-label" style="color:${m.color}">${esc(m.label)}</span><span class="ai-chat-text">${esc(m.text)}</span>`;
+    }
+    feed.appendChild(div);
+
+    // Detect slash commands in agent output and surface action buttons
+    if (m.isFullText && m.text) {
+      const CMD_ACTIONS = { '/assemble': '\u2192 Move to /assemble', '/orbit': '\u2192 Start orbit' };
+      for (const [cmd, label] of Object.entries(CMD_ACTIONS)) {
+        const re = new RegExp(cmd.replace('/', '\\/') + '\\b');
+        if (re.test(m.text) && !feed.querySelector(`.cmd-action-btn[data-cmd="${cmd}"]`)) {
+          const btn = document.createElement('button');
+          btn.className = 'cmd-action-btn';
+          btn.dataset.cmd = cmd;
+          btn.textContent = label;
+          btn.onclick = () => handleCommandAction(cmd);
+          feed.appendChild(btn);
+        }
+      }
+
+      // Detect evidence/data questions and show gather chip
+      if (EVIDENCE_TRIGGER_RE.test(m.text) && state.orbPhase === 'agree') {
+        showEvidenceChips(feed);
+      }
+    }
+  }
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function handleCommandAction(cmd) {
+  const input = document.getElementById('setup-input');
+  if (input) { input.value = cmd; sendSetupMessage(); }
+}
+
+// ── Evidence gathering ─────────────────────────────────────
+const EVIDENCE_SOURCES = {
+  'data-query':   { label: 'Data Query',    icon: '\uD83D\uDCCA', desc: 'SQL / BigQuery / analytics' },
+  'doc-search':   { label: 'Doc Search',    icon: '\uD83D\uDCC4', desc: 'Internal documents & wikis' },
+  'app-reviews':  { label: 'App Reviews',   icon: '\u2B50',       desc: 'App store ratings & feedback' },
+  'slack-signal': { label: 'Slack Signal',  icon: '\uD83D\uDCAC', desc: 'Slack threads & discussions' },
+  'market-intel': { label: 'Market Intel',  icon: '\uD83C\uDF10', desc: 'Competitor & market research' },
+  'metrics-pull': { label: 'Metrics Pull',  icon: '\uD83D\uDCC8', desc: 'Dashboards & KPIs' },
+};
+
+const EVIDENCE_TRIGGER_RE = /\b(evidence|data|signal|NPS|metrics|research|reviews|feedback|insights|customer\s*research|app\s*reviews|user\s*feedback)\b/i;
+
+function showEvidenceChips(feed) {
+  if (!state.setupOppId || feed.querySelector('.evidence-chips')) return;
+  const container = document.createElement('div');
+  container.className = 'evidence-chips';
+  const btn = document.createElement('button');
+  btn.className = 'evidence-chip';
+  btn.textContent = 'Gather Evidence';
+  btn.onclick = () => openEvidenceModal();
+  container.appendChild(btn);
+  feed.appendChild(container);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function openEvidenceModal(preselect) {
+  if (document.querySelector('.evidence-modal-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'evidence-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  let selected = preselect || null;
+
+  const sourceGrid = Object.entries(EVIDENCE_SOURCES).map(([key, s]) =>
+    `<button class="evidence-source-option${key === selected ? ' selected' : ''}" data-source="${key}">
+      <span class="source-label">${s.icon} ${s.label}</span>
+      <span class="source-desc">${s.desc}</span>
+    </button>`
+  ).join('');
+
+  overlay.innerHTML = `
+    <div class="evidence-modal">
+      <div class="evidence-modal-header">
+        <h3>Gather Evidence</h3>
+        <p>Launch a focused agent to collect evidence for this orb</p>
+      </div>
+      <div class="evidence-modal-body">
+        <div class="evidence-source-grid">${sourceGrid}</div>
+        <input class="evidence-query-input" placeholder="What are you looking for? e.g. NPS scores for tmart users"
+               id="evidence-query-input" />
+      </div>
+      <div class="evidence-modal-footer">
+        <button class="evidence-btn-cancel" onclick="this.closest('.evidence-modal-overlay').remove()">Cancel</button>
+        <button class="evidence-btn-gather" id="evidence-gather-btn" disabled>Gather</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  // Source selection
+  overlay.querySelectorAll('.evidence-source-option').forEach(opt => {
+    opt.onclick = () => {
+      overlay.querySelectorAll('.evidence-source-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      selected = opt.dataset.source;
+      updateGatherBtn();
+    };
+  });
+
+  const queryInput = overlay.querySelector('#evidence-query-input');
+  const gatherBtn = overlay.querySelector('#evidence-gather-btn');
+
+  function updateGatherBtn() {
+    gatherBtn.disabled = !selected || !queryInput.value.trim();
+  }
+  queryInput.addEventListener('input', updateGatherBtn);
+  queryInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !gatherBtn.disabled) launchGather();
+  });
+  setTimeout(() => queryInput.focus(), 100);
+
+  async function launchGather() {
+    if (!selected || !queryInput.value.trim()) return;
+    const query = queryInput.value.trim();
+    const sourceType = selected;
+    gatherBtn.disabled = true;
+    gatherBtn.textContent = 'Launching...';
+
+    try {
+      await api.post(`evidence/${state.setupOppId}/gather`, {
+        source_type: sourceType,
+        query: query,
+      });
+      overlay.remove();
+      addEvidenceCard(sourceType, query);
+      startEvidencePolling();
+    } catch (err) {
+      gatherBtn.textContent = 'Failed — retry';
+      gatherBtn.disabled = false;
+      toast('Evidence gather failed: ' + err.message);
+    }
+  }
+  gatherBtn.onclick = launchGather;
+}
+
+function addEvidenceCard(sourceType, query) {
+  const feed = document.getElementById('setup-feed');
+  if (!feed) return;
+  const src = EVIDENCE_SOURCES[sourceType] || { label: sourceType, icon: '\uD83D\uDD0D' };
+  const cardId = `evidence-card-${sourceType}`;
+  // Remove existing card for same source type
+  const existing = feed.querySelector(`#${cardId}`);
+  if (existing) existing.remove();
+
+  const card = document.createElement('div');
+  card.className = 'evidence-card';
+  card.id = cardId;
+  const freshnessPill = (() => {
+    const maxAgeDays = (state.qualityConfig?.evidence_max_age_days) || 30;
+    if (card._gatheredAt) {
+      const ageDays = (Date.now() - card._gatheredAt) / 86400000;
+      if (ageDays > maxAgeDays) return `<span class="gate-pill gate-pill--warn" style="font-size:9px;margin-left:6px">STALE</span>`;
+    }
+    return '';
+  })();
+  card._gatheredAt = Date.now();
+  card.innerHTML = `
+    <div class="evidence-card-header">
+      <span class="evidence-card-icon">${src.icon}</span>
+      <span class="evidence-card-title">${esc(src.label)}</span>
+      ${freshnessPill}
+      <span class="evidence-card-status gathering">Gathering...</span>
+    </div>
+    <div class="evidence-card-query">${esc(query)}</div>
+    <div class="evidence-card-output"></div>`;
+  feed.appendChild(card);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function startEvidencePolling() {
+  if (state._evidencePolling) return;
+  state._evidencePolling = setInterval(pollEvidenceStatus, 3000);
+  pollEvidenceStatus();
+}
+
+async function pollEvidenceStatus() {
+  if (!state.setupOppId) { stopEvidencePolling(); return; }
+  try {
+    const data = await api.get(`evidence/${state.setupOppId}/status`);
+    if (!data) return;
+
+    // Update cards with output
+    for (const [src, lines] of Object.entries(data.evidence_outputs || {})) {
+      const card = document.getElementById(`evidence-card-${src}`);
+      if (!card) continue;
+      const outputEl = card.querySelector('.evidence-card-output');
+      if (outputEl && lines.length) {
+        // Parse stream-json lines for display text
+        const displayLines = lines
+          .map(l => { try { const j = JSON.parse(l); return j.content || j.result || ''; } catch { return l; } })
+          .filter(Boolean)
+          .slice(-5);
+        if (displayLines.length) outputEl.textContent = displayLines.join('\n');
+      }
+    }
+
+    // Check if done
+    if (!data.running) {
+      stopEvidencePolling();
+      // Mark all gathering cards as completed
+      document.querySelectorAll('.evidence-card-status.gathering').forEach(el => {
+        el.className = 'evidence-card-status completed';
+        el.textContent = 'Done';
+      });
+      // Try to load evidence files
+      loadEvidenceFindings();
+    }
+  } catch (err) {
+    console.warn('Evidence poll error:', err);
+  }
+}
+
+function stopEvidencePolling() {
+  if (state._evidencePolling) {
+    clearInterval(state._evidencePolling);
+    state._evidencePolling = null;
+  }
+}
+
+async function loadEvidenceFindings() {
+  if (!state.setupOppId) return;
+  try {
+    const ws = await api.get(`workspaces/${state.setupOppId}`);
+    if (!ws?.evidence) return;
+    for (const ev of ws.evidence) {
+      const src = ev.source_type;
+      const card = document.getElementById(`evidence-card-${src}`);
+      if (!card) continue;
+      // Evidence freshness warning
+      if (ev.gathered_at) {
+        const maxAgeDays = (state.qualityConfig?.evidence_max_age_days) || 30;
+        const ageDays = (Date.now() - new Date(ev.gathered_at).getTime()) / 86400000;
+        if (ageDays > maxAgeDays) {
+          const header = card.querySelector('.evidence-card-header');
+          if (header && !header.querySelector('.gate-pill--warn')) {
+            const pill = document.createElement('span');
+            pill.className = 'gate-pill gate-pill--warn';
+            pill.style.cssText = 'font-size:9px;margin-left:6px';
+            pill.textContent = 'STALE';
+            header.insertBefore(pill, header.querySelector('.evidence-card-status'));
+          }
+        }
+      }
+      const outputEl = card.querySelector('.evidence-card-output');
+      if (outputEl && ev.status === 'completed') {
+        outputEl.className = 'evidence-card-findings';
+        const summary = ev.summary || '';
+        const findings = (ev.findings || []).slice(0, 3).map(f =>
+          `\u2022 ${f.finding || f.text || JSON.stringify(f)}`
+        ).join('\n');
+        outputEl.innerHTML = renderMarkdown(summary + (findings ? '\n' + findings : ''));
+      } else if (outputEl && ev.status === 'failed') {
+        const statusEl = card.querySelector('.evidence-card-status');
+        if (statusEl) { statusEl.className = 'evidence-card-status failed'; statusEl.textContent = 'Failed'; }
+      }
+    }
+  } catch (err) {
+    console.warn('Evidence findings load error:', err);
+  }
+}
+
+function showSetupApproveButton() {
+  const feed = document.getElementById('setup-feed');
+  if (!feed || feed.querySelector('.setup-approve-btn')) return;
+  if (state._setupPlanContent) {
+    const planDiv = document.createElement('div');
+    planDiv.className = 'ai-chat-msg plan-preview';
+    planDiv.textContent = state._setupPlanContent;
+    feed.appendChild(planDiv);
+  }
+  const btn = document.createElement('button');
+  btn.className = 'setup-approve-btn approve-btn';
+  btn.textContent = 'Launch Orb';
+  btn.onclick = handleSetupApprove;
+  feed.appendChild(btn);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+async function handleSetupApprove() {
+  if (!state.setupOppId) return;
+  const btn = document.querySelector('.setup-approve-btn');
+  if (btn) { btn.textContent = 'Launching...'; btn.disabled = true; }
+  try {
+    await api.post(`launch/${state.setupOppId}/approve`, {});
+    if (btn) { btn.textContent = 'Launched'; btn.style.borderColor = '#10B981'; }
+    state._setupHasPlan = false;
+    // Navigate to workspace view
+    setTimeout(() => navigate('orb', { opp_id: state.setupOppId }), 1500);
+  } catch (err) {
+    if (btn) { btn.textContent = 'Launch failed — retry'; btn.disabled = false; }
+  }
+}
+
+function renderPreviewCards(opp, catalog, loadedContext) {
+  // Phase indicator
+  const hasRoster = opp.roster && opp.roster.length > 0;
+  const phase = opp.status === 'orbiting' ? 'ready' : hasRoster ? 'assembling' : 'refining';
+  const phases = [
+    { key: 'refining', label: 'Refining' },
+    { key: 'assembling', label: 'Assembling' },
+    { key: 'ready', label: 'Ready' },
+  ];
+  const phaseHtml = phases.map((p, i) => {
+    const status = p.key === phase ? 'active' : (phases.findIndex(x => x.key === phase) > i ? 'complete' : '');
+    return `<div class="setup-phase ${status}">
+      <span class="setup-phase-dot"></span>
+      <span class="text-xs">${p.label}</span>
+    </div>${i < phases.length - 1 ? '<span class="setup-phase-line"></span>' : ''}`;
+  }).join('');
+
+  // Opportunity card — rich view with signals
+  const oppType = opp.type || 'hypothesis';
+  const oppTitle = esc(opp.title || 'Untitled');
+  const oppDesc = esc(opp.description || '');
+
+  function renderSignalSection(title, items, dotColor) {
+    if (!items || !items.length) return '';
+    return `<div class="opp-signals">
+      <div class="opp-signals-title">${title} (${items.length})</div>
+      ${items.map(s => {
+        const text = typeof s === 'string' ? s : (s.content || String(s));
+        return `<div class="opp-signal-item"><span class="opp-signal-dot" style="background:${dotColor}"></span><span>${esc(text)}</span></div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  const assumptionsHtml = renderSignalSection('Assumptions', (opp.assumptions || []).map(normalizeAssumption), 'var(--color-neutral-light)');
+  const successHtml = renderSignalSection('Success Signals', opp.success_signals, 'var(--color-accent)');
+  const killHtml = renderSignalSection('Kill Signals', opp.kill_signals, 'var(--color-counter)');
+
+  // Context card — only show what agent has loaded
+  let contextHtml = '';
+  if (loadedContext.length === 0) {
+    contextHtml = '<div class="muted-hint">Agent will load relevant context...</div>';
+  } else {
+    contextHtml = loadedContext.map(c => {
+      return `<div class="setup-ctx-layer clickable" onclick="openContextSlideOver('${esc(c.layerType)}','${esc(c.name)}')">
+        <span class="sufficiency-dot sufficient"></span>
+        <span>${esc(c.layerType)}/${esc(c.name)}</span>
+        <span class="text-muted gap-ctx-chevron">&rsaquo;</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Roster card
+  const roster = opp.roster || [];
+  let rosterHtml = '';
+  if (roster.length === 0) {
+    rosterHtml = '<div class="muted-hint">Agent will recommend team...</div>';
+  } else {
+    rosterHtml = roster.map(r => {
+      const fn = rosterFn(r) || 'unknown';
+      return `<span class="setup-roster-chip"><span class="setup-roster-dot" style="background:${agentColor(fn)}"></span>${esc(fn)}</span>`;
+    }).join('');
+  }
+
+  // Connectors card — toggle switches
+  const enabled = state._enabledConnectors || new Set();
+  let connectorsHtml = '';
+  if (Array.isArray(catalog) && catalog.length > 0) {
+    connectorsHtml = catalog.map(t => {
+      const tid = esc(t.id || t.name || 'tool');
+      const isActive = enabled.has(t.id || t.name);
+      return `<div class="setup-connector ${isActive ? 'active' : ''}" data-tool-id="${tid}" onclick="toggleConnector(this)">` +
+        `<div class="setup-toggle-track"><div class="setup-toggle-knob"></div></div>` +
+        `<span>${esc(t.name || t.id || 'tool')}</span></div>`;
+    }).join('');
+  } else {
+    connectorsHtml = '<div class="muted-hint">No connectors configured</div>';
+  }
+
+  return `
+    <div class="setup-card">
+      <div class="setup-card-title">Progress</div>
+      <div class="setup-card-body">
+        <div class="setup-phases">${phaseHtml}</div>
+      </div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-card-title">Opportunity</div>
+      <div class="setup-card-body">
+        <span class="ws-type mb-6 inline-block">${oppType}</span>
+        <div class="text-md font-weight-500 mb-4">${oppTitle}</div>
+        <div class="text-sm text-secondary lh-16">${oppDesc}</div>
+        ${assumptionsHtml}${successHtml}${killHtml}
+      </div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-card-title">Context${loadedContext.length ? ` (${loadedContext.length})` : ''}</div>
+      <div class="setup-card-body">${contextHtml}</div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-card-title">Roster</div>
+      <div class="setup-card-body">${rosterHtml}</div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-card-title">Connectors</div>
+      <div class="setup-card-body">
+        <div class="setup-connectors">${connectorsHtml}</div>
+      </div>
+    </div>`;
+}
+
+function sufficiencyDot(suf) {
+  if (!suf) return '';
+  const s = suf.status || 'sufficient';
+  return `<span class="sufficiency-dot ${s}"></span>`;
+}
+
+function renderSidebar(ws, opp_id) {
+  const opp = ws.opportunity;
+  const activeTab = state.sidebarTab || 'overview';
+
+  // ── Tab bar ──
+  const tabBar = `<div class="sidebar-tabs">
+    <button class="sidebar-tab ${activeTab === 'overview' ? 'active' : ''}" onclick="switchSidebarTab('overview')">Overview</button>
+    <button class="sidebar-tab ${activeTab === 'evidence' ? 'active' : ''}" onclick="switchSidebarTab('evidence')">Evidence</button>
+    <button class="sidebar-tab ${activeTab === 'agents' ? 'active' : ''}" onclick="switchSidebarTab('agents')">Agents</button>
+    <button class="sidebar-tab ${activeTab === 'quality' ? 'active' : ''}" onclick="switchSidebarTab('quality')">Quality</button>
+  </div>`;
+
+  // ── Overview tab: Synthesis + Assumptions ──
+  let overview = '';
+  if (ws.synthesis) {
+    overview += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Synthesis</div>
+        <div class="card card--accent-left">
+          <div class="subheading mb-4 text-accent">${esc(ws.synthesis?.verdict || ws.synthesis?.decision || 'Complete')}</div>
+          <div class="text-sm text-secondary lh-16">${esc(ws.synthesis?.verdict_summary || ws.synthesis?.executive_summary || '')}</div>
+        </div>
+      </div>`;
+  }
+  if (opp.assumptions?.length) {
+    overview += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Assumptions (${opp.assumptions.length})</div>
+        ${opp.assumptions.map(normalizeAssumption).map(a => `
+          <div class="finding-card neutral" style="border-left-color:${IMP_COLORS[a.importance] || '#64748B'}">
+            <div class="finding-header">
+              <span class="finding-type" style="color:${IMP_COLORS[a.importance] || '#64748B'}">${a.importance || 'medium'}</span>
+              <span class="finding-conf">${a.status || 'untested'}</span>
+            </div>
+            <div class="finding-text">${esc(a.content)}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+  if (!overview) overview = '<div class="muted-hint" style="padding:16px 0">No synthesis or assumptions yet.</div>';
+
+  // ── Evidence tab: Contributions + Reviews + Artifacts ──
+  let evidence = '';
+  if (ws.contributions?.length) {
+    evidence += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Contributions (${ws.contributions.length})</div>
+        <div class="contrib-list" id="contrib-list">
+          ${ws.contributions.map(c => {
+            const fn = c.filename.replace('.json', '').replace(/-round-\d+/, '');
+            const qBadge = c.quality_score != null
+              ? `<span class="gate-pill gate-pill--${qualityScoreClass(c.quality_score)}" style="margin-left:auto;font-size:9px">${Math.round(c.quality_score * 100)}%</span>`
+              : '';
+            return `<div class="contrib-item" data-file="${c.filename}" onclick="toggleContribution('${opp_id}','${c.filename}')" style="display:flex;align-items:center">
+                <div class="contrib-dot" style="background:${agentColor(fn)}"></div>
+                <div class="contrib-name">${c.filename}</div>
+                ${qBadge}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+  if (ws.reviews?.length) {
+    evidence += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Reviews (${ws.reviews.length})</div>
+        <div class="contrib-list">
+          ${ws.reviews.map(r => `<div class="contrib-item" onclick="toggleReview('${opp_id}','${r.filename}')">
+                <div class="contrib-dot bg-data"></div>
+                <div class="contrib-name">${r.filename}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+  if (ws.artifacts?.length) {
+    evidence += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Artifacts (${ws.artifacts.length})</div>
+        <div class="contrib-list">
+          ${ws.artifacts.map(a => `<div class="contrib-item" onclick="toggleArtifact('${opp_id}','${a.filename}')">
+              <div class="contrib-dot bg-design"></div>
+              <div class="contrib-name">${a.filename}</div>
+              <div class="contrib-badge">.${a.type || 'md'}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+  }
+  if (!evidence) evidence = '<div class="muted-hint" style="padding:16px 0">No evidence collected yet.</div>';
+
+  // ── Agents tab: Roster + Activity Feed ──
+  let agents = '';
+  if (opp.roster?.length) {
+    agents += `
+      <div class="flex flex-wrap gap-6 mb-12">
+        ${opp.roster.map(r => `
+          <div class="setup-roster-chip">
+            <span class="setup-roster-dot" style="background:${agentColor(rosterFn(r))}"></span>
+            ${rosterFn(r)}
+          </div>`).join('')}
+      </div>`;
+  }
+  agents += `<div id="agent-stats" class="flex flex-wrap gap-12 font-mono text-xs text-muted mb-8 d-none" style="padding:6px 0"></div>`;
+  agents += `<div id="agent-feed"><div class="ai-empty">No agent activity yet.</div></div>`;
+
+  // ── Quality tab ──
+  let quality = `<div id="quality-tab-content"><div class="muted-hint" style="padding:16px 0">Loading quality data...</div></div>`;
+
+  const sidebarContent = document.getElementById('sidebar-content');
+  if (sidebarContent) sidebarContent.innerHTML = tabBar +
+    `<div class="sidebar-tab-content ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview">${overview}</div>` +
+    `<div class="sidebar-tab-content ${activeTab === 'evidence' ? 'active' : ''}" data-tab="evidence">${evidence}</div>` +
+    `<div class="sidebar-tab-content ${activeTab === 'agents' ? 'active' : ''}" data-tab="agents">${agents}</div>` +
+    `<div class="sidebar-tab-content ${activeTab === 'quality' ? 'active' : ''}" data-tab="quality">${quality}</div>`;
+  // Show chat input bar when Agents tab is active
+  const chatBar = document.getElementById('chat-input-bar');
+  if (chatBar) chatBar.style.display = activeTab === 'agents' ? '' : 'none';
+
+  // Load quality data if quality tab is active
+  if (activeTab === 'quality') loadQualityTab(opp_id);
+}
+
+function switchSidebarTab(tab) {
+  state.sidebarTab = tab;
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.textContent.trim().toLowerCase() === tab));
+  document.querySelectorAll('.sidebar-tab-content').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+  const chatBar = document.getElementById('chat-input-bar');
+  if (chatBar) chatBar.style.display = tab === 'agents' ? '' : 'none';
+}
+
+// Slide-over panel
+function openSlideOver(title, html) {
+  const soTitle = document.getElementById('slide-over-title');
+  const soBody = document.getElementById('slide-over-body');
+  const so = document.getElementById('slide-over');
+  const soBg = document.getElementById('slide-over-backdrop');
+  if (soTitle) soTitle.textContent = title;
+  if (soBody) soBody.innerHTML = html;
+  if (so) so.classList.add('open');
+  if (soBg) soBg.classList.add('open');
+}
+function closeSlideOver() {
+  const so = document.getElementById('slide-over');
+  const soBg = document.getElementById('slide-over-backdrop');
+  if (so) so.classList.remove('open');
+  if (soBg) soBg.classList.remove('open');
+  document.querySelectorAll('.agent-card.active').forEach(c => c.classList.remove('active'));
+}
+
+// ── Edit Opportunity slide-over ──
+async function openEditOpportunity(oppId) {
+  try {
+    const [opp, ctxLayers] = await Promise.all([
+      api.get('workspaces/' + oppId).then(ws => ws.opportunity),
+      api.get('context')
+    ]);
+    // Working copies for array editing
+    state._editAssumptions = (opp.assumptions || []).map(normalizeAssumption).map(a => ({...a}));
+    state._editSuccessSignals = [...(opp.success_signals || [])];
+    state._editKillSignals = [...(opp.kill_signals || [])];
+    state._editContextRefs = [...(opp.context_refs || [])];
+    state._editRoster = (opp.roster || []).map(r => ({...r}));
+    state._editOppId = oppId;
+
+    const typeOptions = ['hypothesis','problem','question'].map(t =>
+      `<option value="${t}" ${opp.type === t ? 'selected' : ''}>${t}</option>`).join('');
+
+    // Group context layers by layer_type
+    const grouped = {};
+    (ctxLayers || []).forEach(l => { (grouped[l.layer_type] = grouped[l.layer_type] || []).push(l); });
+    const layerOrder = ['L1','L2a','L2b'];
+
+    let ctxHtml = '';
+    layerOrder.forEach(lt => {
+      if (!grouped[lt]) return;
+      ctxHtml += `<div class="edit-ctx-group-label">${lt}</div>`;
+      grouped[lt].forEach(l => {
+        const checked = state._editContextRefs.includes(l.id) ? 'checked' : '';
+        ctxHtml += `<label class="edit-ctx-row"><input type="checkbox" ${checked} onchange="toggleEditContext('${l.id}')"><span>${esc(l.name)}</span><span class="text-muted text-2xs">${l.id}</span></label>`;
+      });
+    });
+
+    const html = `
+      <div class="flex flex-col">
+        <div class="edit-card">
+          <div class="edit-card-title">Opportunity</div>
+          <input class="edit-input" id="edit-title" value="${esc(opp.title || '')}" placeholder="What are you investigating...">
+          <div class="mt-8">
+            <textarea class="edit-textarea" id="edit-description" rows="2" placeholder="Describe the opportunity...">${esc(opp.description || '')}</textarea>
+          </div>
+          <div class="flex items-center gap-8 mt-8">
+            <span class="text-xs text-muted">Type</span>
+            <select class="edit-select" id="edit-type">${typeOptions}</select>
+          </div>
+        </div>
+        <div class="edit-card">
+          <div class="edit-card-title">Assumptions</div>
+          <div id="edit-assumptions-list">${renderEditAssumptions()}</div>
+          <div class="edit-add-row">
+            <input class="edit-input" id="edit-new-assumption" placeholder="Add assumption...">
+            <select class="edit-select" id="edit-new-assumption-imp" style="width:auto"><option value="critical">critical</option><option value="high" selected>high</option><option value="medium">medium</option><option value="low">low</option></select>
+            <button class="edit-add-btn" onclick="addEditAssumption()">+</button>
+          </div>
+        </div>
+        <div class="edit-card">
+          <div class="edit-card-title">Signals</div>
+          <div class="mb-8">
+            <div class="text-muted uppercase mb-4 label-9px">Success</div>
+            <div id="edit-success-list">${renderEditSignals('success')}</div>
+            <div class="edit-add-row">
+              <input class="edit-input" id="edit-new-success" placeholder="Add success signal...">
+              <button class="edit-add-btn" onclick="addEditSignal('success')">+</button>
+            </div>
+          </div>
+          <div>
+            <div class="text-muted uppercase mb-4 label-9px">Kill</div>
+            <div id="edit-kill-list">${renderEditSignals('kill')}</div>
+            <div class="edit-add-row">
+              <input class="edit-input" id="edit-new-kill" placeholder="Add kill signal...">
+              <button class="edit-add-btn" onclick="addEditSignal('kill')">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="edit-card">
+          <div class="edit-card-title">Context</div>
+          ${ctxHtml}
+        </div>
+        <div class="edit-card">
+          <div class="edit-card-title">Roster</div>
+          <div id="edit-roster-list">${renderEditRoster()}</div>
+          <div class="edit-add-row">
+            <input class="edit-input" id="edit-new-roster" placeholder="Add agent (e.g. analyst)...">
+            <button class="edit-add-btn" onclick="addEditRosterMember()">+</button>
+          </div>
+        </div>
+        <button class="edit-save-btn" onclick="saveOpportunityEdits('${oppId}')">Save Changes</button>
+      </div>`;
+    openSlideOver('Edit Opportunity', html);
+  } catch (err) { toast('Failed to load opportunity: ' + err.message); }
+}
+
+function renderEditAssumptions() {
+  return state._editAssumptions.map((a, i) => `
+    <div class="edit-tag"><span>${esc(a.content)}</span><span class="text-2xs text-muted ml-4">${a.importance || 'medium'}</span><button class="edit-tag-remove" onclick="removeEditItem('assumptions',${i})">&times;</button></div>
+  `).join('');
+}
+function renderEditSignals(type) {
+  const arr = type === 'success' ? state._editSuccessSignals : state._editKillSignals;
+  const cls = type === 'success' ? 'success' : 'kill';
+  return arr.map((s, i) => `
+    <div class="edit-tag ${cls}"><span>${esc(s)}</span><button class="edit-tag-remove" onclick="removeEditItem('${type}Signals',${i})">&times;</button></div>
+  `).join('');
+}
+function renderEditRoster() {
+  return state._editRoster.map((r, i) => `
+    <div class="edit-tag"><span class="status-dot" style="background:${agentColor(rosterFn(r))}"></span><span>${esc(rosterFn(r))}</span><button class="edit-tag-remove" onclick="removeEditItem('roster',${i})">&times;</button></div>
+  `).join('');
+}
+
+function removeEditItem(type, index) {
+  if (type === 'assumptions') { state._editAssumptions.splice(index, 1); const el = document.getElementById('edit-assumptions-list'); if (el) el.innerHTML = renderEditAssumptions(); }
+  else if (type === 'successSignals') { state._editSuccessSignals.splice(index, 1); const el = document.getElementById('edit-success-list'); if (el) el.innerHTML = renderEditSignals('success'); }
+  else if (type === 'killSignals') { state._editKillSignals.splice(index, 1); const el = document.getElementById('edit-kill-list'); if (el) el.innerHTML = renderEditSignals('kill'); }
+  else if (type === 'roster') { state._editRoster.splice(index, 1); const el = document.getElementById('edit-roster-list'); if (el) el.innerHTML = renderEditRoster(); }
+}
+
+function addEditAssumption() {
+  const input = document.getElementById('edit-new-assumption');
+  const imp = document.getElementById('edit-new-assumption-imp');
+  if (!input.value.trim()) return;
+  const id = 'asm-' + String(state._editAssumptions.length + 1).padStart(3, '0');
+  state._editAssumptions.push({ id, content: input.value.trim(), status: 'untested', importance: imp.value });
+  input.value = '';
+  document.getElementById('edit-assumptions-list').innerHTML = renderEditAssumptions();
+}
+
+function addEditSignal(type) {
+  const input = document.getElementById('edit-new-' + type);
+  if (!input.value.trim()) return;
+  if (type === 'success') state._editSuccessSignals.push(input.value.trim());
+  else state._editKillSignals.push(input.value.trim());
+  input.value = '';
+  document.getElementById('edit-' + type + '-list').innerHTML = renderEditSignals(type);
+}
+
+function toggleEditContext(ref) {
+  const idx = state._editContextRefs.indexOf(ref);
+  if (idx >= 0) state._editContextRefs.splice(idx, 1);
+  else state._editContextRefs.push(ref);
+}
+
+function addEditRosterMember() {
+  const input = document.getElementById('edit-new-roster');
+  if (!input.value.trim()) return;
+  state._editRoster.push({ function: input.value.trim(), rationale: '', investigation_tracks: [], tool_access: [] });
+  input.value = '';
+  document.getElementById('edit-roster-list').innerHTML = renderEditRoster();
+}
+
+async function saveOpportunityEdits(oppId) {
+  const title = document.getElementById('edit-title').value.trim();
+  const description = document.getElementById('edit-description').value.trim();
+  const type = document.getElementById('edit-type').value;
+  if (!title) { toast('Title is required'); return; }
+
+  // Normalize roster to always use 'function' key
+  const roster = state._editRoster.map(r => ({
+    function: rosterFn(r),
+    rationale: r.rationale || '',
+    investigation_tracks: r.investigation_tracks || [],
+    tool_access: r.tool_access || []
+  }));
+
+  try {
+    const updated = await api.patch('workspaces/' + oppId + '/opportunity', {
+      title, description, type,
+      assumptions: state._editAssumptions,
+      success_signals: state._editSuccessSignals,
+      kill_signals: state._editKillSignals,
+      context_refs: state._editContextRefs,
+      roster
+    });
+
+    // Update local state and re-render
+    state.currentOpp = updated;
+    const ws = await api.get('workspaces/' + oppId);
+    const statusClass = 'status-' + (updated.status || 'unknown');
+    const sidebarHdr = document.getElementById('sidebar-header');
+    if (sidebarHdr) sidebarHdr.innerHTML = `
+      <div class="flex items-center gap-12 mb-8 flex-wrap">
+        <span class="status-pill ${statusClass}">${updated.status}</span>
+        <span class="text-xs font-mono text-muted">${updated.id}</span>
+        <button class="edit-opp-btn" onclick="openEditOpportunity('${oppId}')" title="Edit opportunity">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+      <div class="subheading mb-12 lh-14">${esc(updated.title)}</div>`;
+    renderSidebar(ws, oppId);
+    closeSlideOver();
+    toast('Opportunity updated');
+  } catch (err) { toast('Failed to save: ' + err.message); }
+}
+
+async function openContextSlideOver(layerType, name) {
+  try {
+    const data = await api.get(`context/${layerType}/${name}`);
+    if (!data) return;
+    const title = data.name || `${layerType}/${name}`;
+    const html = `
+      <div class="ctx-tabs">
+        <button class="ctx-tab active" onclick="switchCtxTab(this,'summary')">Summary</button>
+        <button class="ctx-tab" onclick="switchCtxTab(this,'raw')">Sources</button>
+        <button class="ctx-tab" onclick="switchCtxTab(this,'graph')">Knowledge Graph</button>
+      </div>
+      <div id="ctx-summary" class="ctx-tab-content active">${renderContextSummary(data)}</div>
+      <div id="ctx-raw" class="ctx-tab-content">${renderContextSources(data)}</div>
+      <div id="ctx-graph" class="ctx-tab-content"><canvas id="ctx-graph-canvas" class="ctx-graph-canvas"></canvas></div>`;
+    openSlideOver(title, html);
+  } catch (err) { toast('Failed to load context: ' + err.message); }
+}
+
+function switchCtxTab(btn, tab) {
+  btn.parentElement.querySelectorAll('.ctx-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const panel = btn.closest('#slide-over-body');
+  panel.querySelectorAll('.ctx-tab-content').forEach(c => c.classList.remove('active'));
+  panel.querySelector('#ctx-' + tab).classList.add('active');
+  if (tab === 'graph') requestAnimationFrame(async () => await renderContextGraph(panel));
+}
+
+function renderContextSummary(data) {
+  const c = data.content || {};
+  let html = '';
+  // Overview
+  if (c.product_overview || c.market_overview || c.mission) {
+    const overview = c.product_overview || c.market_overview || c.mission;
+    html += `<div class="ctx-summary-section"><h3>Overview</h3><div class="ctx-summary-item">${inlineFormat(overview)}</div></div>`;
+  }
+  if (c.strategy) {
+    html += `<div class="ctx-summary-section"><h3>Strategy</h3><div class="ctx-summary-item">${inlineFormat(c.strategy)}</div></div>`;
+  }
+  // Personas
+  if (c.personas?.length) {
+    html += `<div class="ctx-summary-section"><h3>Personas (${c.personas.length})</h3>`;
+    c.personas.forEach(p => {
+      html += `<div class="ctx-summary-item"><strong>${esc(p.name)}</strong><br>${esc(p.description)}</div>`;
+    });
+    html += '</div>';
+  }
+  // Competitors
+  if (c.competitors?.length) {
+    html += `<div class="ctx-summary-section"><h3>Competitors (${c.competitors.length})</h3>`;
+    c.competitors.forEach(comp => {
+      let detail = esc(comp.positioning || '');
+      if (comp.strengths?.length) detail += '<br><span class="text-accent">+</span> ' + comp.strengths.map(esc).join(', ');
+      if (comp.weaknesses?.length) detail += '<br><span class="text-counter">-</span> ' + comp.weaknesses.map(esc).join(', ');
+      html += `<div class="ctx-summary-item"><strong>${esc(comp.name)}</strong><br>${detail}</div>`;
+    });
+    html += '</div>';
+  }
+  // Goals
+  if (c.goals?.length) {
+    html += `<div class="ctx-summary-section"><h3>Goals</h3>`;
+    c.goals.forEach(g => { html += `<div class="ctx-summary-item">${esc(typeof g === 'string' ? g : g.goal || JSON.stringify(g))}</div>`; });
+    html += '</div>';
+  }
+  // Voice of customer
+  if (c.voice_of_customer) {
+    const voc = c.voice_of_customer;
+    html += `<div class="ctx-summary-section"><h3>Voice of Customer</h3>`;
+    if (voc.love?.length) html += `<div class="ctx-summary-item"><strong class="text-accent">Love</strong><br>${voc.love.map(esc).join('<br>')}</div>`;
+    if (voc.frustration?.length) html += `<div class="ctx-summary-item"><strong class="text-counter">Frustration</strong><br>${voc.frustration.map(esc).join('<br>')}</div>`;
+    if (voc.wishes?.length) html += `<div class="ctx-summary-item"><strong class="text-design">Wishes</strong><br>${voc.wishes.map(esc).join('<br>')}</div>`;
+    if (voc.churn_signals?.length) html += `<div class="ctx-summary-item"><strong class="text-brief">Churn Signals</strong><br>${voc.churn_signals.map(esc).join('<br>')}</div>`;
+    html += '</div>';
+  }
+  // Org metrics
+  if (c.org_metrics?.length) {
+    html += `<div class="ctx-summary-section"><h3>Metrics</h3>`;
+    c.org_metrics.forEach(m => {
+      html += `<div class="ctx-summary-item"><strong>${esc(m.name || m.metric || '')}</strong>: ${esc(m.value || m.target || '')}</div>`;
+    });
+    html += '</div>';
+  }
+  // Sufficiency
+  if (data.sufficiency) {
+    const suf = data.sufficiency;
+    const dotClass = suf.status === 'sufficient' ? 'sufficient' : 'gaps_identified';
+    html += `<div class="ctx-summary-section"><h3>Data Quality</h3>
+      <div class="ctx-summary-item"><span class="sufficiency-dot ${dotClass}"></span> ${esc(suf.status)}`;
+    if (suf.gaps?.length) {
+      html += '<br>' + suf.gaps.map(g => `<span class="text-brief text-xs">${esc(g.field)}: ${esc(g.description)}</span>`).join('<br>');
+    }
+    html += '</div></div>';
+  }
+  if (!html) html = '<div class="ctx-empty">No structured content found.</div>';
+  return html;
+}
+
+function renderContextSources(data) {
+  const sources = data.sources || [];
+  if (!sources.length) {
+    return '<div class="ctx-empty ctx-empty--padded">No source attribution available for this context layer.</div>';
+  }
+  const icons = {
+    slack: '\u{1F4AC}', bigquery: '\u{1F4CA}', document: '\u{1F4C4}', interview: '\u{1F399}\uFE0F',
+    dashboard: '\u{1F4C8}', survey: '\u{1F4CB}', analytics: '\u{1F4C9}', report: '\u{1F4D1}',
+  };
+  let html = '';
+  sources.forEach(s => {
+    const icon = icons[s.type] || '\u{1F4C4}';
+    const nameHtml = s.url
+      ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="ctx-link">${esc(s.name)}</a>`
+      : `<strong>${esc(s.name)}</strong>`;
+    const fieldsHtml = (s.fields_informed || []).map(f =>
+      `<span class="source-field-chip">${esc(f)}</span>`
+    ).join('');
+    html += `<div class="ctx-source-item">
+      <div class="source-item-row">
+        <span class="source-item-icon">${icon}</span>
+        <div class="flex-1">
+          <div>${nameHtml} <span class="source-type-badge">${esc(s.type)}</span></div>
+          ${s.description ? `<div class="source-desc">${esc(s.description)}</div>` : ''}
+        </div>
+        ${s.date ? `<span class="source-date">${esc(s.date)}</span>` : ''}
+      </div>
+      ${fieldsHtml ? `<div class="source-fields">${fieldsHtml}</div>` : ''}
+    </div>`;
+  });
+  return html;
+}
+
+async function renderContextGraph(panel) {
+  const canvas = panel.querySelector('#ctx-graph-canvas');
+  if (!canvas || canvas.dataset.rendered) return;
+  canvas.dataset.rendered = '1';
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Loading state
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '11px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Loading context map...', W/2, H/2);
+
+  // Fetch context layers — scoped to opportunity's context_refs when available
+  let allLayers;
+  try { allLayers = await api.get('context'); } catch (err) { console.warn('Failed to load context layers:', err); return; }
+  if (!allLayers?.length) return;
+
+  const contextRefs = state.currentOpp?.context_refs;
+  const scopedLayers = contextRefs?.length
+    ? allLayers.filter(l => contextRefs.includes(l.id))
+    : allLayers;
+  if (!scopedLayers.length) return;
+
+  // Fetch full data for each scoped layer
+  const docs = [];
+  for (const layer of scopedLayers) {
+    try {
+      const full = await api.get(`context/${layer.layer_type}/${layer.file_name}`);
+      if (full) docs.push({ ...full, _layerType: layer.layer_type, _fileName: layer.file_name });
+    } catch (err) { console.warn('Failed to load context layer:', err); }
+  }
+
+  // Figure out which doc is currently active in the slide-over
+  const slideTitle = document.querySelector('#slide-over-title')?.textContent || '';
+  const activeId = docs.find(d => slideTitle.includes(d.name))?.id;
+
+  // Extract entities per doc for relationship detection
+  function extractEntities(doc) {
+    const c = doc.content || {};
+    const entities = { personas: new Set(), competitors: new Set(), goals: new Set() };
+    (c.personas || []).forEach(p => { if (p.name) entities.personas.add(p.name.toLowerCase()); });
+    (c.competitors || []).forEach(comp => { if (comp.name) entities.competitors.add(comp.name.toLowerCase()); });
+    (c.goals || []).forEach(g => {
+      const text = typeof g === 'string' ? g : (g.goal || '');
+      text.toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 3).forEach(w => entities.goals.add(w));
+    });
+    return entities;
+  }
+
+  const docEntities = docs.map(d => ({ doc: d, entities: extractEntities(d) }));
+
+  // Layer type colors
+  const layerColors = { L1: '#10B981', L2a: '#8B5CF6', L2b: '#3B82F6' };
+
+  // Build nodes — one per document
+  const nodes = docs.map((d, i) => {
+    const lt = d._layerType || 'L1';
+    return {
+      id: d.id, label: d.name || d.id, layerType: lt,
+      color: layerColors[lt] || '#64748B', isActive: d.id === activeId,
+      x: 0, y: 0,
+    };
+  });
+
+  // Build edges — shared entities between documents
+  const edges = [];
+  for (let i = 0; i < docEntities.length; i++) {
+    for (let j = i + 1; j < docEntities.length; j++) {
+      const a = docEntities[i], b = docEntities[j];
+      const shared = [];
+      const pIntersect = [...a.entities.personas].filter(x => b.entities.personas.has(x));
+      if (pIntersect.length) shared.push(`${pIntersect.length} persona${pIntersect.length > 1 ? 's' : ''}`);
+      const cIntersect = [...a.entities.competitors].filter(x => b.entities.competitors.has(x));
+      if (cIntersect.length) shared.push(`${cIntersect.length} competitor${cIntersect.length > 1 ? 's' : ''}`);
+      const gIntersect = [...a.entities.goals].filter(x => b.entities.goals.has(x));
+      if (gIntersect.length >= 2) shared.push('goals');
+      if (shared.length) {
+        edges.push({ from: a.doc.id, to: b.doc.id, label: shared.join(', '), weight: pIntersect.length + cIntersect.length + (gIntersect.length >= 2 ? 1 : 0) });
+      }
+    }
+  }
+
+  // Also add hierarchy edges: L1 → L2a, L1 → L2b
+  const l1 = nodes.find(n => n.layerType === 'L1');
+  if (l1) {
+    nodes.filter(n => n.layerType !== 'L1').forEach(n => {
+      if (!edges.find(e => (e.from === l1.id && e.to === n.id) || (e.from === n.id && e.to === l1.id))) {
+        edges.push({ from: l1.id, to: n.id, label: '', weight: 0.5, isHierarchy: true });
+      }
+    });
+  }
+
+  if (nodes.length === 0) return;
+
+  // Clear canvas
+  ctx.clearRect(0, 0, W, H);
+
+  // Layout: group by layer type
+  const pad = 40;
+  const cx = W / 2, cy = H / 2;
+  // Place L1 at center, L2a nodes in upper arc, L2b nodes in lower arc
+  nodes.forEach((n, i) => {
+    if (n.layerType === 'L1') { n.x = cx; n.y = cy; return; }
+    const group = nodes.filter(nd => nd.layerType === n.layerType);
+    const idx = group.indexOf(n);
+    const count = group.length;
+    if (n.layerType === 'L2a') {
+      const span = Math.PI * 0.8;
+      const start = Math.PI + (Math.PI - span) / 2;
+      const angle = count === 1 ? Math.PI * 1.5 : start + (idx / (count - 1)) * span;
+      const r = Math.min(W, H) * 0.34;
+      n.x = cx + Math.cos(angle) * r;
+      n.y = cy + Math.sin(angle) * r;
+    } else {
+      const span = Math.PI * 0.8;
+      const start = (Math.PI - span) / 2;
+      const angle = count === 1 ? Math.PI * 0.5 : start + (idx / (count - 1)) * span;
+      const r = Math.min(W, H) * 0.34;
+      n.x = cx + Math.cos(angle) * r;
+      n.y = cy + Math.sin(angle) * r;
+    }
+  });
+
+  // Force relaxation — push apart overlapping nodes
+  for (let iter = 0; iter < 20; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+        const minD = 65;
+        if (d < minD) {
+          const f = (minD - d) * 0.25;
+          if (a.layerType !== 'L1') { a.x -= (dx/d)*f; a.y -= (dy/d)*f; }
+          if (b.layerType !== 'L1') { b.x += (dx/d)*f; b.y += (dy/d)*f; }
+        }
+      }
+    }
+    // Keep in bounds
+    nodes.forEach(n => {
+      n.x = Math.max(pad, Math.min(W - pad, n.x));
+      n.y = Math.max(pad, Math.min(H - pad, n.y));
+    });
+  }
+
+  // Draw edges
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+  edges.forEach(e => {
+    const from = nodeMap[e.from], to = nodeMap[e.to];
+    if (!from || !to) return;
+    const lw = e.isHierarchy ? 0.5 : Math.min(1 + e.weight, 4);
+    const alpha = e.isHierarchy ? 0.06 : 0.08 + Math.min(e.weight * 0.04, 0.15);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+    // Edge label
+    if (e.label && !e.isHierarchy) {
+      const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '8px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(e.label, mx, my - 4);
+    }
+  });
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const r = n.layerType === 'L1' ? 18 : (n.isActive ? 14 : 10);
+    // Glow
+    ctx.shadowColor = n.color; ctx.shadowBlur = n.isActive ? 20 : 10;
+    ctx.fillStyle = n.color;
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Active ring
+    if (n.isActive) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r + 3, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Label
+    ctx.fillStyle = n.isActive ? '#fff' : 'rgba(255,255,255,0.75)';
+    ctx.font = n.isActive ? '600 11px system-ui' : '10px system-ui';
+    ctx.textAlign = 'center';
+    const label = n.label.length > 18 ? n.label.slice(0, 16) + '..' : n.label;
+    ctx.fillText(label, n.x, n.y + r + 14);
+  });
+
+  // Legend
+  const legendY = H - 16;
+  let legendX = 12;
+  ctx.font = '9px system-ui';
+  Object.entries(layerColors).forEach(([lt, color]) => {
+    const label = lt === 'L1' ? 'Global' : lt === 'L2a' ? 'Business Line' : 'Market';
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(legendX, legendY, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'left';
+    ctx.fillText(label, legendX + 8, legendY + 3);
+    legendX += ctx.measureText(label).width + 24;
+  });
+}
+
+async function toggleContribution(opp_id, filename) {
+  const data = await api.get(`workspaces/${opp_id}/contributions/${filename}`);
+  if (!data) return;
+  const fn = data.agent_function || filename.replace('.json', '');
+  const html = `
+    <div class="flex items-center gap-12 mb-16">
+      <div class="contrib-dot contrib-dot-lg" style="background:${agentColor(fn)}"></div>
+      <span class="text-lg font-semibold" style="color:${agentColor(fn)}">${fn}</span>
+      <span class="text-sm text-muted">Round ${data.round || '?'}</span>
+      <span class="ml-auto text-sm text-muted">${(data.findings||[]).length} findings</span>
+    </div>
+    ${(data.findings || []).map(f => {
+      const dc = f.direction === 'supports' ? 'supports' : f.direction === 'contradicts' ? 'contradicts' : 'neutral';
+      return `<div class="finding-card ${dc}">
+        <div class="finding-header">
+          <span class="finding-type" style="color:${agentColor(fn)}">${(f.type || 'finding').replace(/_/g, ' ')}</span>
+          <span class="finding-conf">${Math.round((f.confidence || 0) * 100)}%</span>
+        </div>
+        <div class="finding-text">${formatContent(f.content || f.summary || '')}</div>
+        ${f.source ? `<div class="finding-source">${esc(f.source)}</div>` : ''}
+      </div>`;
+    }).join('')}`;
+  openSlideOver(filename, html);
+}
+
+async function toggleReview(opp_id, filename) {
+  const data = await api.get(`workspaces/${opp_id}/reviews/${filename}`);
+  if (!data) return;
+  const reviewer = data.reviewer_function || filename.replace('.json','');
+  const rc = agentColor(reviewer);
+  const assessColors = { strong_agreement:'#10B981', partially_supported:'#F59E0B', challenge:'#EF4444', excellent:'#10B981' };
+  let html = `<div class="review-border-left" style="border-left:3px solid ${rc}">
+    <div class="flex items-center gap-12 mb-8">
+      <div class="contrib-dot contrib-dot-lg" style="background:${rc}"></div>
+      <span class="text-lg font-semibold" style="color:${rc}">${reviewer}</span>
+      <span class="text-sm text-muted">reviews ${data.reviewed_contribution || ''}</span>
+    </div>
+    <div class="finding-text mb-8">${formatContent(data.overall_assessment || '')}</div>
+  </div>`;
+  if (data.finding_reviews?.length) {
+    html += `<div class="review-section-label">Finding Reviews (${data.finding_reviews.length})</div>`;
+    html += data.finding_reviews.map(fr => {
+      const ac = assessColors[fr.assessment] || '#64748B';
+      return `<div class="review-card">
+        <div class="flex items-center gap-12 review-finding-mb">
+          <code class="text-sm text-muted">${fr.finding_id}</code>
+          <span class="drawer-badge" style="background:${ac}20;color:${ac}">${(fr.assessment||'').replace(/_/g,' ')}</span>
+        </div>
+        <div class="finding-text">${formatContent(fr.notes || '')}</div>
+      </div>`;
+    }).join('');
+  }
+  if (data.data_consistency_issues?.length) {
+    html += `<div class="review-section-label">Consistency Issues (${data.data_consistency_issues.length})</div>`;
+    html += data.data_consistency_issues.map(i => `<div class="review-card">
+      <div class="review-issue-title">${esc(i.issue)}</div>
+      <div class="finding-text">${formatContent(i.details || '')}</div>
+      ${i.recommendation ? `<div class="finding-source">${esc(i.recommendation)}</div>` : ''}
+    </div>`).join('');
+  }
+  openSlideOver(filename, html);
+}
+
+async function toggleArtifact(opp_id, filename) {
+  const content = await api.getText(`workspaces/${opp_id}/artifacts/${filename}`);
+  if (content === null) return;
+  // If content looks like HTML, render it directly; otherwise render as markdown
+  const isHTML = /^\s*<!doctype|^\s*<html|^\s*<[a-z]+[\s>]/i.test(content.trim());
+  const rendered = isHTML
+    ? `<div class="md-content">${content}</div>`
+    : renderMarkdown(content);
+  openSlideOver(filename, rendered);
+}
+
+function updateGraphStats(sim, agentKeys) {
+  const el = document.getElementById('graph-stats');
+  if (!el) return;
+  const alive = sim.nodes.filter(n => n.alive);
+  const links = sim.links.filter(l => l.alive);
+  el.innerHTML = `
+    <div class="stat-badge"><span class="stat-val">${alive.length}</span><span class="stat-label">nodes</span></div>
+    <div class="stat-badge"><span class="stat-val">${links.length}</span><span class="stat-label">links</span></div>
+    <div class="stat-badge"><span class="stat-val">${agentKeys.length}</span><span class="stat-label">agents</span></div>`;
+}
+
+function renderAgentLegend(agentKeys) {
+  const el = document.getElementById('agent-legend');
+  if (!el) return;
+  el.innerHTML = agentKeys.map(k =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${agentColor(k)}"></div><span class="legend-name">${k}</span></div>`
+  ).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// WEBSOCKET — Live Mode
+// ════════════════════════════════════════════════════════════
+
+function updateAgentStats(running) {
+  const el = document.getElementById('agent-stats');
+  if (!el) return;
+  const parts = [];
+  if (state._agentStartTime) {
+    const elapsed = state._agentDuration || (Date.now() - state._agentStartTime);
+    const s = Math.floor(elapsed / 1000);
+    const m = Math.floor(s / 60);
+    parts.push(`${m > 0 ? m + 'm ' : ''}${s % 60}s`);
+  }
+  if (state._agentModel) parts.push(state._agentModel.split('-').slice(0,2).join('-'));
+  if (state._agentTurns) parts.push(`${state._agentTurns} turns`);
+  if (state._agentCost) parts.push(`$${state._agentCost.toFixed(2)}`);
+  if (parts.length) {
+    el.style.display = '';
+    el.innerHTML = parts.map(p => `<span>${p}</span>`).join('<span class="separator-dot">·</span>');
+  }
+}
+
+function pollAgentStatus(opp_id) {
+  if (state._agentPoll) clearInterval(state._agentPoll);
+  state._lastOutputLen = 0;
+  state._lastFeedLen = 0;
+  state._agentStartTime = Date.now();
+  state._agentCost = 0;
+  state._agentTurns = 0;
+  state._agentDuration = 0;
+  state._agentModel = '';
+  state._agentHasPlan = false;
+  state._planContent = '';
+  state._agentWasRunning = false;
+  async function check() {
+    try {
+      const s = await api.get(`launch/${opp_id}/status`);
+      const el = document.getElementById('agent-status');
+      if (!el) { clearInterval(state._agentPoll); return; }
+      if (s.running) {
+        state._agentWasRunning = true;
+        el.style.display = '';
+        el.innerHTML = '<span class="live-pulse bg-brief"></span> agents running';
+      } else if (state._agentHasPlan && state._lastOutputLen > 0) {
+        el.style.display = '';
+        el.innerHTML = '<span class="status-dot bg-brief"></span> plan ready';
+        showApproveButton();
+      } else if (state._lastOutputLen > 0) {
+        el.style.display = '';
+        el.innerHTML = '<span class="status-dot bg-accent"></span> complete';
+      } else if (!s.running && state._agentWasRunning) {
+        // Agent crashed — was running but stopped without producing output
+        el.style.display = '';
+        el.innerHTML = '<span class="status-dot bg-counter"></span> error';
+        const feed = document.getElementById('agent-feed');
+        if (feed) {
+          const div = document.createElement('div');
+          div.className = 'ai-chat-msg';
+          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly. Send another message to resume.</span>';
+          feed.appendChild(div);
+          feed.scrollTop = feed.scrollHeight;
+        }
+        clearInterval(state._agentPoll);
+      } else {
+        el.style.display = 'none';
+      }
+      // Feed agent activity
+      if (s.output?.length) {
+        updateAgentFeed(s.output);
+        state._lastOutputLen = s.output.length;
+      }
+      // Update stats header
+      updateAgentStats(s.running);
+      // Enable/disable chat input
+      const chatInput = document.getElementById('chat-input');
+      const chatBtn = document.getElementById('chat-send-btn');
+      if (chatInput) chatInput.disabled = !s.running;
+      if (chatBtn) chatBtn.disabled = !s.running;
+      updateSendButton(s.running);
+      if (!s.running && state._lastOutputLen > 0) clearInterval(state._agentPoll);
+    } catch (err) { console.warn('pollAgentStatus network error:', err); }
+  }
+  check();
+  state._agentPoll = setInterval(check, 3000);
+}
+
+function updateAgentFeed(lines) {
+  const feed = document.getElementById('agent-feed');
+  if (!feed) return;
+  let start = state._lastFeedLen || 0;
+  if (lines.length < start) start = 0;
+  if (lines.length <= start) return;
+  const newLines = lines.slice(start);
+  state._lastFeedLen = lines.length;
+  const messages = parseStreamJson(newLines);
+  if (!messages.length) return;
+  removeThinking('agent-feed');
+  const empty = feed.querySelector('.ai-empty');
+  if (empty) empty.remove();
+  for (const m of messages) {
+    const div = document.createElement('div');
+    div.className = 'ai-chat-msg' + (m.isTool ? ' ai-tool' : '');
+    div.innerHTML = `<span class="ai-chat-label" style="color:${m.color}">${esc(m.label)}</span><span class="ai-chat-text">${esc(m.text)}</span>`;
+    feed.appendChild(div);
+  }
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function summarizeTool(name, input) {
+  // Turn tool calls into short human-readable strings
+  if (!input) return name;
+  if (name === 'Read' && input.file_path) {
+    const p = input.file_path.split('/');
+    return p.slice(-2).join('/');
+  }
+  if (name === 'Write' && input.file_path) {
+    const p = input.file_path.split('/');
+    return p.slice(-2).join('/');
+  }
+  if (name === 'Edit' && input.file_path) {
+    const p = input.file_path.split('/');
+    return p.slice(-2).join('/');
+  }
+  if (name === 'Grep' && input.pattern) return `grep "${input.pattern}"`;
+  if (name === 'Glob' && input.pattern) return input.pattern;
+  if (name === 'Bash' && input.command) return input.command.length > 60 ? input.command.slice(0,60) + '...' : input.command;
+  if (name === 'WebSearch' && input.query) return `"${input.query}"`;
+  if (name === 'WebFetch' && input.url) return input.url.split('/').slice(-2).join('/');
+  if (name === 'AskUserQuestion') {
+    const qs = input?.questions;
+    if (Array.isArray(qs) && qs.length > 0) return qs.map(q => q.question || '').join(' | ');
+    return 'asking...';
+  }
+  // Fallback: show first string value
+  const vals = Object.values(input);
+  const first = vals.find(v => typeof v === 'string');
+  return first ? (first.length > 50 ? first.slice(0,50) + '...' : first) : '';
+}
+
+function toolColor(name) {
+  const n = name.toLowerCase();
+  if (n === 'read') return '#3B82F6';           // blue
+  if (n === 'write' || n === 'edit') return '#EF4444';  // red
+  if (n === 'bash') return '#F59E0B';           // amber
+  if (n === 'glob' || n === 'grep') return '#8B5CF6';   // purple
+  if (n === 'agent') return '#10B981';          // green
+  if (n === 'webfetch' || n === 'websearch') return '#06B6D4'; // cyan
+  return '#F97316';                              // orange fallback
+}
+
+function parseStreamJson(lines, opts) {
+  const msgs = [];
+  const fullText = opts?.fullText || false;
+  const suppressDone = opts?.suppressDone || false;
+  let consecutiveParseFailures = 0;
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line);
+      consecutiveParseFailures = 0; // reset on success
+      if (ev.type === 'system' && ev.subtype === 'init') {
+        state._agentModel = ev.model || '';
+        state._agentStartTime = state._agentStartTime || Date.now();
+        if (!state._setupInitSeen) {
+          state._setupInitSeen = true;
+          msgs.push({ label: 'init', color: 'var(--text-muted)', text: ev.model || 'starting', isTool: false });
+        }
+      } else if (ev.type === 'assistant') {
+        const content = ev.message?.content || [];
+        for (const block of content) {
+          if (block.type === 'text' && block.text?.trim()) {
+            const text = block.text.trim();
+            if (fullText) {
+              msgs.push({ label: 'claude', color: 'var(--color-accent)', text, isTool: false, isFullText: true });
+            } else {
+              const firstLine = text.split('\n')[0];
+              msgs.push({ label: 'claude', color: 'var(--color-accent)', text: firstLine.length > 120 ? firstLine.slice(0,120) + '...' : firstLine, isTool: false });
+            }
+          }
+          if (block.type === 'tool_use') {
+            const name = block.name || 'tool';
+            // Detect plan mode events
+            if (name === 'ExitPlanMode') {
+              state._agentHasPlan = true;
+              msgs.push({ label: 'plan', color: '#F59E0B', text: 'Plan ready — review and approve below', isTool: false });
+              continue;
+            }
+            // Render AskUserQuestion as readable question + options
+            if (name === 'AskUserQuestion' && block.input?.questions) {
+              for (const q of block.input.questions) {
+                msgs.push({ label: 'question', color: '#F59E0B', text: q.question || '', isTool: false });
+                if (q.options?.length) {
+                  for (const opt of q.options) {
+                    msgs.push({ label: '', color: 'var(--text-muted)', text: '  \u2192 ' + (opt.label || '') + (opt.description ? ': ' + opt.description : ''), isTool: false });
+                  }
+                }
+              }
+              continue;
+            }
+            if (name === 'Write' && block.input?.file_path?.includes('plans/')) {
+              state._planContent = block.input?.content || '';
+            }
+            const summary = summarizeTool(name, block.input);
+            msgs.push({ label: name.toLowerCase(), color: toolColor(name), text: summary, isTool: true });
+          }
+        }
+      } else if (ev.type === 'result') {
+        state._agentCost = ev.total_cost_usd || 0;
+        state._agentTurns = ev.num_turns || 0;
+        state._agentDuration = ev.duration_ms || 0;
+        const rUsage = ev.usage || {};
+        state._totalTokens += (rUsage.input_tokens || 0) +
+          (rUsage.cache_creation_input_tokens || 0) +
+          (rUsage.cache_read_input_tokens || 0) +
+          (rUsage.output_tokens || 0);
+        if (!suppressDone) {
+          msgs.push({ label: 'done', color: '#10B981', text: `${ev.num_turns} turns · $${ev.total_cost_usd?.toFixed(2) || '?'}`, isTool: false });
+        }
+      }
+    } catch (err) {
+      // Non-JSON lines (warnings, plain text) are expected — skip silently
+      consecutiveParseFailures++;
+      if (consecutiveParseFailures > 3) {
+        msgs.push({ label: 'warn', color: '#F59E0B', text: 'Some agent output could not be parsed', isTool: false });
+        consecutiveParseFailures = 0; // reset to avoid spamming
+      }
+    }
+  }
+  return msgs;
+}
+
+function showApproveButton() {
+  const feed = document.getElementById('agent-feed');
+  if (!feed || feed.querySelector('.approve-plan-btn')) return;
+  // Show plan content if captured
+  if (state._planContent) {
+    const planDiv = document.createElement('div');
+    planDiv.className = 'ai-chat-msg plan-preview';
+    planDiv.textContent = state._planContent;
+    feed.appendChild(planDiv);
+  }
+  const btn = document.createElement('button');
+  btn.className = 'approve-plan-btn approve-btn';
+  btn.textContent = 'Approve Plan';
+  btn.onclick = approvePlan;
+  feed.appendChild(btn);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+async function approvePlan() {
+  const opp_id = state.currentOpp?.id;
+  if (!opp_id) return;
+  const btn = document.querySelector('.approve-plan-btn');
+  if (btn) { btn.textContent = 'Approving...'; btn.disabled = true; }
+  try {
+    await api.post(`launch/${opp_id}/approve`, {});
+    if (btn) { btn.textContent = 'Approved'; btn.style.borderColor = '#10B981'; }
+    state._agentHasPlan = false;
+    // Resume polling for execution
+    pollAgentStatus(opp_id);
+  } catch (err) {
+    if (btn) { btn.textContent = 'Approve failed — retry'; btn.disabled = false; }
+  }
+}
+
+async function launchAgents(opp_id) {
+  try {
+    const r = await api.post(`launch/${opp_id}/start`, {});
+    if (r.status === 'launched') {
+      toast('Agents launched');
+      updateSendButton(true);
+      pollAgentStatus(opp_id);
+    } else {
+      toast('Agents already running');
+    }
+  } catch (err) { toast('Launch failed: ' + err.message); }
+}
+
+const SLASH_COMMANDS = [
+  { cmd: '/agree', desc: 'Frame the opportunity' },
+  { cmd: '/assemble', desc: 'Assemble the team' },
+  { cmd: '/orbit', desc: 'Run full orbit cycle' },
+  { cmd: '/explore', desc: 'Parallel solution branches' },
+  { cmd: '/execute', desc: 'Task breakdown + Linear tasks' },
+  { cmd: '/prototype', desc: 'Prototype variation + review' },
+  { cmd: '/synthesize', desc: 'Cross-agent synthesis' },
+  { cmd: '/status', desc: 'Agent status check' },
+];
+
+function handleChatKey(e) {
+  const hints = document.getElementById('chat-hints');
+  if (hints && hints.style.display !== 'none') {
+    if (e.key === 'Escape') { hints.style.display = 'none'; return; }
+    if (e.key === 'Tab' || (e.key === 'Enter' && hints.querySelector('.chat-hint-active'))) {
+      e.preventDefault();
+      const active = hints.querySelector('.chat-hint-active') || hints.querySelector('.chat-hint');
+      if (active) {
+        const input = document.getElementById('chat-input');
+        input.value = active.dataset.value + ' ';
+        hints.style.display = 'none';
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = [...hints.querySelectorAll('.chat-hint')];
+      const idx = items.findIndex(i => i.classList.contains('chat-hint-active'));
+      items.forEach(i => i.classList.remove('chat-hint-active'));
+      const next = e.key === 'ArrowDown' ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+      items[next]?.classList.add('chat-hint-active');
+      return;
+    }
+  }
+  // Escape stops agent when hints are not visible
+  if (e.key === 'Escape' && (!hints || hints.style.display === 'none')) {
+    if (state._agentPoll) stopAgent();
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+}
+
+function handleChatInput(e) {
+  const val = e.target.value;
+  const hints = document.getElementById('chat-hints');
+  if (!hints) return;
+  // Slash commands
+  if (val.startsWith('/')) {
+    const q = val.toLowerCase();
+    const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(q));
+    if (matches.length && val.indexOf(' ') === -1) {
+      hints.innerHTML = matches.map((m, i) =>
+        `<div class="chat-hint${i === 0 ? ' chat-hint-active' : ''}" data-value="${m.cmd}">
+          <span class="text-accent">${m.cmd}</span>
+          <span class="text-muted ml-8">${m.desc}</span>
+        </div>`
+      ).join('');
+      hints.style.display = '';
+      return;
+    }
+  }
+  // @ references — show contribution/artifact files
+  const atMatch = val.match(/@(\S*)$/);
+  if (atMatch) {
+    const q = atMatch[1].toLowerCase();
+    const ws = state.workspaceData;
+    const refs = [];
+    const roster = ws?.opportunity?.roster;
+    if (roster) refs.push(...roster.map(r => ({ name: r.function, type: 'agent' })));
+    if (ws?.contributions) refs.push(...ws.contributions.map(c => ({ name: c.filename, type: 'contribution' })));
+    if (ws?.artifacts) refs.push(...ws.artifacts.map(a => ({ name: a.filename, type: 'artifact' })));
+    const matches = refs.filter(r => r.name.toLowerCase().includes(q)).slice(0, 6);
+    if (matches.length) {
+      hints.innerHTML = matches.map((m, i) =>
+        `<div class="chat-hint${i === 0 ? ' chat-hint-active' : ''}" data-value="${val.slice(0, val.length - atMatch[0].length)}@${m.name}">
+          <span class="text-design">@${m.name}</span>
+          <span class="text-muted ml-8">${m.type}</span>
+        </div>`
+      ).join('');
+      hints.style.display = '';
+      return;
+    }
+  }
+  hints.style.display = 'none';
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  const hints = document.getElementById('chat-hints');
+  if (hints) hints.style.display = 'none';
+  // Add user message to feed immediately
+  const feed = document.getElementById('agent-feed');
+  if (feed) {
+    const empty = feed.querySelector('.ai-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'ai-chat-msg ai-user';
+    div.innerHTML = `<span class="ai-chat-label">you</span><span class="ai-chat-text">${esc(text)}</span>`;
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+  showThinking('agent-feed');
+  // Send to backend
+  const opp_id = state.currentOpp?.id;
+  if (!opp_id) return;
+  try {
+    await api.post(`launch/${opp_id}/send`, { message: text });
+  } catch (err) { console.warn('sendChatMessage error:', err); removeThinking('agent-feed'); }
+}
+
+function connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws) {
+  // Stash context so toggleWebSocket can reconnect
+  state._wsContext = { opp_id, sim, nodeMap, renderer, ws };
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let opened = false;
+  let socket;
+  try { socket = new WebSocket(`${proto}//${location.host}/ws/workspace/${opp_id}`); }
+  catch { return; } // WS not supported
+  state.ws = socket;
+
+  const badge = document.getElementById('ws-status');
+  if (badge) badge.innerHTML = '<span class="live-pulse"></span> connecting... <span class="ws-chevron">▾</span>';
+
+  socket.onopen = () => {
+    opened = true;
+    if (badge) badge.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
+  };
+
+  socket.onmessage = async (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.event === 'connected') return;
+
+      // Add to live feed
+      addLiveEvent(event);
+
+      // Spawn nodes for new contributions
+      if (event.type === 'contribution' && event.path) {
+        const filename = event.path.replace('contributions/', '');
+        const data = await api.get(`workspaces/${opp_id}/contributions/${filename}`);
+        if (data) addContributionToGraph(sim, nodeMap, renderer, data, filename);
+      }
+      // Trigger scan ring for synthesis
+      if (event.type === 'synthesis') {
+        sim._scanStart = performance.now();
+      }
+    } catch (err) { /* ignore parse errors */ }
+  };
+
+  socket.onerror = () => {};
+
+  socket.onclose = () => {
+    if (!badge) return;
+    badge.innerHTML = opened
+      ? '<span class="status-dot" style="background:var(--color-counter)"></span> disconnected <span class="ws-chevron">▾</span>'
+      : '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
+  };
+}
+
+function toggleWsDropdown() {
+  const menu = document.getElementById('ws-menu');
+  if (!menu) return;
+  const open = !menu.classList.contains('d-none');
+  if (open) { menu.classList.add('d-none'); return; }
+
+  const connected = state.ws && state.ws.readyState === WebSocket.OPEN;
+  menu.innerHTML = connected
+    ? '<div class="ws-dropdown-item ws-dropdown-item--danger" onclick="wsDisconnect()"><span class="status-dot bg-counter"></span> Disconnect</div>'
+    : '<div class="ws-dropdown-item" onclick="wsReconnect()"><span class="status-dot bg-accent"></span> Reconnect</div>';
+  menu.classList.remove('d-none');
+
+  // Close on outside click
+  setTimeout(() => {
+    const close = (e) => { if (!menu.contains(e.target) && e.target.id !== 'ws-status') { menu.classList.add('d-none'); document.removeEventListener('click', close); } };
+    document.addEventListener('click', close);
+  });
+}
+
+function wsDisconnect() {
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  if (state._setupWs) { state._setupWs.close(); state._setupWs = null; }
+  const menu = document.getElementById('ws-menu');
+  if (menu) menu.classList.add('d-none');
+}
+
+function wsReconnect() {
+  const ctx = state._wsContext;
+  if (ctx) {
+    const badge = document.getElementById('ws-status');
+    if (badge) badge.innerHTML = '<span class="live-pulse"></span> connecting... <span class="ws-chevron">▾</span>';
+    connectLiveWebSocket(ctx.opp_id, ctx.sim, ctx.nodeMap, ctx.renderer, ctx.ws);
+  } else if (state.setupOppId) {
+    // Reconnect orb WS (agree/assemble phase)
+    connectOrbWS(state.setupOppId);
+  }
+  const menu = document.getElementById('ws-menu');
+  if (menu) menu.classList.add('d-none');
+}
+
+function addContributionToGraph(sim, nodeMap, renderer, data, filename) {
+  const fn = data.agent_function || filename.replace('.json', '').replace(/-round-\d+/, '');
+  const color = agentColor(fn);
+  const cx = sim.width / 2, cy = sim.height / 2;
+  const AGENT_ANGLES = { product: Math.PI / 4, design: 3 * Math.PI / 4, data: 5 * Math.PI / 4, engineering: 7 * Math.PI / 4 };
+  const homeAngle = AGENT_ANGLES[fn] || Math.random() * Math.PI * 2;
+
+  // Brief node
+  const briefId = `brief:${filename}`;
+  if (!nodeMap[briefId]) {
+    const briefNode = new GNode(briefId, 'brief', '#F59E0B', 14, { ...data, agent_function: fn, filename });
+    briefNode.cluster = fn;
+    nodeMap[briefId] = briefNode; sim.nodes.push(briefNode);
+    const center = nodeMap['center'];
+    if (center) sim.links.push(new GLink(center, briefNode, 60, '#F59E0B', 'brief'));
+    briefNode.spawn(cx + Math.cos(homeAngle) * 70, cy + Math.sin(homeAngle) * 70, 0, 0);
+  }
+
+  // Finding nodes
+  (data.findings || []).forEach((f, fi) => {
+    const key = `${fn}:${f.id || 'f' + fi}`;
+    if (nodeMap[key]) return;
+    const r = f.confidence > 0.8 ? 10 : (f.confidence > 0.6 ? 8 : 6);
+    const node = new GNode(key, 'finding', color, r, {
+      ...f, agent: fn, agentLabel: fn, typeColor: TYPE_COLORS[f.type] || '#64748B'
+    });
+    node.isCounter = f.type === 'counter_signal' || f.direction === 'contradicts';
+    node.cluster = fn;
+    nodeMap[key] = node; sim.nodes.push(node);
+
+    const briefNode = nodeMap[briefId];
+    sim.links.push(new GLink(node, briefNode || nodeMap['center'], 100, color, 'finding'));
+
+    // Spawn with animation
+    const offset = 120 + Math.random() * 60;
+    node.spawn(
+      cx + Math.cos(homeAngle) * offset + (Math.random() - 0.5) * 40,
+      cy + Math.sin(homeAngle) * offset + (Math.random() - 0.5) * 40,
+      Math.cos(homeAngle) * 0.5, Math.sin(homeAngle) * 0.5
+    );
+
+    // Enable link
+    sim.links.forEach(l => {
+      if (!l.alive && l.source.alive && l.target.alive) l.alive = true;
+    });
+  });
+
+  // Update stats
+  const agentKeys = [...new Set(sim.nodes.filter(n => n.cluster && n.cluster !== 'assumptions').map(n => n.cluster))];
+  updateGraphStats(sim, agentKeys);
+  renderAgentLegend(agentKeys);
+}
+
+function addLiveEvent(event) {
+  const feed = document.getElementById('live-feed');
+  if (!feed) return;
+
+  // Clear placeholder
+  if (feed.children.length === 1 && !feed.querySelector('.live-event-item')) {
+    feed.innerHTML = '';
+  }
+
+  const typeColors = {
+    contribution: 'var(--color-product)', synthesis: 'var(--color-accent)',
+    review: 'var(--color-data)', artifact: 'var(--color-design)',
+    opportunity: 'var(--color-engineering)',
+  };
+  const color = typeColors[event.type] || 'var(--text-muted)';
+  const time = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
+
+  const div = document.createElement('div');
+  div.className = 'live-event-item';
+  div.innerHTML = `
+    <span class="event-dot" style="background:${color}"></span>
+    <span class="event-type" style="color:${color}">${event.type || event.event}</span>
+    <span class="event-path">${event.path || ''}</span>
+    <span class="event-time">${time}</span>`;
+  feed.prepend(div);
+
+  // Keep max 20
+  while (feed.children.length > 20) feed.lastChild.remove();
+}
+
+// ════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════
+
+function esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  return d + 'd ago';
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  let html = '', inTable = false, inList = false, listType = '';
+  for (let i = 0; i < lines.length; i++) {
+    let l = lines[i];
+    // Table rows
+    if (l.trim().startsWith('|') && l.trim().endsWith('|')) {
+      const cells = l.split('|').slice(1, -1).map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) continue; // separator row
+      if (!inTable) { html += '<table>'; inTable = true; }
+      const isHeader = i + 1 < lines.length && /^\|[\s-:|]+\|$/.test(lines[i+1].trim());
+      const tag = isHeader ? 'th' : 'td';
+      html += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c)}</${tag}>`).join('') + '</tr>';
+      continue;
+    }
+    if (inTable) { html += '</table>'; inTable = false; }
+    // Close list if non-list line
+    if (inList && !/^(\s*[-*]\s|^\s*\d+\.\s)/.test(l) && l.trim() !== '') {
+      html += `</${listType}>`; inList = false;
+    }
+    // Headings
+    if (/^### /.test(l)) { html += `<h3>${inlineFormat(l.slice(4))}</h3>`; continue; }
+    if (/^## /.test(l)) { html += `<h2>${inlineFormat(l.slice(3))}</h2>`; continue; }
+    if (/^# /.test(l)) { html += `<h1>${inlineFormat(l.slice(2))}</h1>`; continue; }
+    // HR
+    if (/^---+$/.test(l.trim())) { html += '<hr>'; continue; }
+    // Unordered list
+    if (/^\s*[-*]\s/.test(l)) {
+      if (!inList || listType !== 'ul') { if (inList) html += `</${listType}>`; html += '<ul>'; inList = true; listType = 'ul'; }
+      html += `<li>${inlineFormat(l.replace(/^\s*[-*]\s/, ''))}</li>`;
+      continue;
+    }
+    // Ordered list
+    if (/^\s*\d+\.\s/.test(l)) {
+      if (!inList || listType !== 'ol') { if (inList) html += `</${listType}>`; html += '<ol>'; inList = true; listType = 'ol'; }
+      html += `<li>${inlineFormat(l.replace(/^\s*\d+\.\s/, ''))}</li>`;
+      continue;
+    }
+    // Blank line
+    if (l.trim() === '') { continue; }
+    // Paragraph
+    html += `<p>${inlineFormat(l)}</p>`;
+  }
+  if (inTable) html += '</table>';
+  if (inList) html += `</${listType}>`;
+  return `<div class="md-content">${html}</div>`;
+}
+
+function inlineFormat(t) {
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+function formatContent(text) {
+  if (!text) return '';
+  return `<div class="p-content">${esc(text).split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, ' ')}</p>`).join('')}</div>`;
+}
+
+function lines(text) { return text.split('\n').map(l => l.trim()).filter(Boolean); }
+
+function linesToAssumptions(text) {
+  return lines(text).map((content, i) => ({
+    id: `asm-${String(i+1).padStart(3, '0')}`,
+    content,
+    status: 'untested',
+    importance: i === 0 ? 'critical' : 'high',
+  }));
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 2500);
+}
+
+// ════════════════════════════════════════════════════════════
+// QUALITY GATES UI
+// ════════════════════════════════════════════════════════════
+
+function qualityScoreClass(score) {
+  if (score >= 0.7) return 'pass';
+  if (score >= 0.4) return 'warn';
+  return 'fail';
+}
+
+function qualityPill(passed, label) {
+  const cls = passed ? 'gate-pill--pass' : 'gate-pill--fail';
+  return `<span class="gate-pill ${cls}">${label || (passed ? 'PASS' : 'FAIL')}</span>`;
+}
+
+async function loadQualityStrip(opp_id) {
+  const strip = document.getElementById('quality-strip');
+  if (!strip) return;
+  try {
+    const data = await api.get(`workspaces/${opp_id}/quality`);
+    if (!data || !data.layer_1) { strip.innerHTML = ''; return; }
+    const l1 = data.layer_1;
+    const scoreClass = qualityScoreClass(l1.overall_score);
+    const passCount = l1.gates.filter(g => g.passed).length;
+    const totalCount = l1.gates.length;
+    strip.innerHTML = `
+      <span class="quality-score quality-score--${scoreClass}">${Math.round(l1.overall_score * 100)}%</span>
+      ${qualityPill(l1.overall_passed)}
+      <span class="text-2xs font-mono text-muted">${passCount}/${totalCount} gates</span>`;
+  } catch (e) {
+    strip.innerHTML = '';
+  }
+}
+
+async function loadQualityTab(opp_id) {
+  const container = document.getElementById('quality-tab-content');
+  if (!container) return;
+  try {
+    const data = await api.get(`workspaces/${opp_id}/quality`);
+    if (!data) { container.innerHTML = '<div class="muted-hint">Quality data not available.</div>'; return; }
+
+    let html = '';
+
+    // Overall score
+    if (data.layer_1) {
+      const l1 = data.layer_1;
+      const scoreClass = qualityScoreClass(l1.overall_score);
+      html += `
+        <div class="sidebar-section">
+          <div class="flex items-center gap-10 mb-8">
+            <span class="quality-score quality-score--${scoreClass}">${Math.round(l1.overall_score * 100)}%</span>
+            ${qualityPill(l1.overall_passed)}
+          </div>
+        </div>`;
+
+      // Gate cards
+      html += `<div class="sidebar-section">
+        <div class="sidebar-section-title">Layer 1 — Automated Gates</div>`;
+      for (const gate of l1.gates) {
+        const stateClass = gate.passed ? 'quality-gate--pass' : (gate.blocking ? 'quality-gate--fail' : 'quality-gate--warn');
+        html += `
+          <div class="quality-gate ${stateClass}">
+            <span class="quality-gate__name">${esc(gate.gate_name.replace(/_/g, ' '))}</span>
+            <span class="quality-gate__value">${esc(gate.detail || '')}</span>
+            ${qualityPill(gate.passed)}
+          </div>`;
+      }
+      html += '</div>';
+    }
+
+    // Layer 2 — LLM rubrics
+    if (data.layer_2) {
+      html += `<div class="sidebar-section">
+        <div class="sidebar-section-title">Layer 2 — LLM Rubrics</div>
+        <div class="quality-rubric-list">`;
+      for (const [name, rubric] of Object.entries(data.layer_2.rubrics || {})) {
+        const scoreClass = qualityScoreClass(rubric.score);
+        html += `
+          <div class="quality-rubric">
+            <span class="quality-rubric__name">${esc(name.replace(/_/g, ' '))}</span>
+            <span class="quality-rubric__score quality-score--${scoreClass}">${(rubric.score * 100).toFixed(0)}%</span>
+          </div>`;
+      }
+      html += '</div></div>';
+    }
+
+    // Layer 3 — Agent Judge
+    if (data.layer_3) {
+      html += `<div class="sidebar-section">
+        <div class="sidebar-section-title">Layer 3 — Agent Judge</div>
+        <div class="quality-rubric-list">`;
+      for (const [name, rubric] of Object.entries(data.layer_3.rubrics || {})) {
+        const scoreClass = qualityScoreClass(rubric.score);
+        html += `
+          <div class="quality-rubric">
+            <span class="quality-rubric__name">${esc(name.replace(/_/g, ' '))}</span>
+            <span class="quality-rubric__score quality-score--${scoreClass}">${(rubric.score * 100).toFixed(0)}%</span>
+          </div>`;
+      }
+      html += '</div></div>';
+    }
+
+    // Action buttons
+    html += `<div class="sidebar-section">
+      <div class="flex gap-8">
+        <button class="btn-secondary btn--sm" onclick="runLlmJudge('${opp_id}')">Run LLM Judge</button>
+        <button class="btn-secondary btn--sm" onclick="runAgentJudge('${opp_id}')">Run Agent Judge</button>
+      </div>
+    </div>`;
+
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div class="muted-hint">Failed to load quality data.</div>';
+  }
+}
+
+async function runLlmJudge(opp_id) {
+  try {
+    await api.post(`workspaces/${opp_id}/quality/evaluate`, {});
+    toast('LLM Judge started');
+    setTimeout(() => loadQualityTab(opp_id), 3000);
+  } catch (e) { toast('LLM Judge: ' + e.message); }
+}
+
+async function runAgentJudge(opp_id) {
+  try {
+    await api.post(`workspaces/${opp_id}/quality/judge`, {});
+    toast('Agent Judge started');
+    setTimeout(() => loadQualityTab(opp_id), 5000);
+  } catch (e) { toast('Agent Judge: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// SETTINGS PAGE
+// ════════════════════════════════════════════════════════════
+
+async function renderSettings(el) {
+  let config = null;
+  try { config = await api.get('quality/config'); } catch (e) {}
+
+  const qg = config?.quality_gates || { enabled: true, blocking_mode: 'warn', layer_1: {}, layer_2: { enabled: true }, layer_3: { enabled: true } };
+  const l1 = qg.layer_1 || {};
+
+  const gateRows = Object.entries(l1).map(([name, gate]) => {
+    const thresholdKey = Object.keys(gate).find(k => !['enabled', 'blocking'].includes(k)) || '';
+    const thresholdVal = thresholdKey ? gate[thresholdKey] : '';
+    return `
+      <div class="settings-row">
+        <span class="settings-row__label">${esc(name.replace(/_/g, ' '))}</span>
+        <div class="flex items-center gap-8">
+          ${thresholdKey ? `<input type="text" class="settings-input" data-gate="${name}" data-key="${thresholdKey}" value="${thresholdVal}">` : ''}
+          <input type="checkbox" class="settings-toggle" data-gate="${name}" data-field="enabled" ${gate.enabled ? 'checked' : ''}>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="section">
+      <h2 class="text-2xl font-semibold mb-16">Settings</h2>
+      <div class="settings-grid">
+        <div class="settings-card">
+          <div class="settings-card__title">Quality Gates</div>
+          <div class="settings-row">
+            <span class="settings-row__label">Enabled</span>
+            <input type="checkbox" class="settings-toggle" id="qg-enabled" ${qg.enabled ? 'checked' : ''}>
+          </div>
+          <div class="settings-row">
+            <span class="settings-row__label">Blocking mode</span>
+            <select class="form-select" id="qg-blocking-mode" style="width:120px;font-size:var(--text-xs)">
+              <option value="warn" ${qg.blocking_mode === 'warn' ? 'selected' : ''}>Warn</option>
+              <option value="block" ${qg.blocking_mode === 'block' ? 'selected' : ''}>Block</option>
+              <option value="off" ${qg.blocking_mode === 'off' ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card__title">Layer 1 — Automated Gates</div>
+          ${gateRows || '<div class="muted-hint">No gates configured</div>'}
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card__title">Layer 2 — LLM-as-Judge</div>
+          <div class="settings-row">
+            <span class="settings-row__label">Enabled</span>
+            <input type="checkbox" class="settings-toggle" id="l2-enabled" ${qg.layer_2?.enabled ? 'checked' : ''}>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card__title">Layer 3 — Agent Judge</div>
+          <div class="settings-row">
+            <span class="settings-row__label">Enabled</span>
+            <input type="checkbox" class="settings-toggle" id="l3-enabled" ${qg.layer_3?.enabled ? 'checked' : ''}>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end mt-16">
+        <button class="btn-primary" onclick="saveQualitySettings()">Save Settings</button>
+      </div>
+    </div>`;
+}
+
+async function saveQualitySettings() {
+  const enabled = document.getElementById('qg-enabled')?.checked ?? true;
+  const blocking_mode = document.getElementById('qg-blocking-mode')?.value || 'warn';
+  const l2_enabled = document.getElementById('l2-enabled')?.checked ?? true;
+  const l3_enabled = document.getElementById('l3-enabled')?.checked ?? true;
+
+  // Collect Layer 1 gate settings
+  const layer_1 = {};
+  document.querySelectorAll('.settings-toggle[data-gate]').forEach(toggle => {
+    const gate = toggle.dataset.gate;
+    if (!layer_1[gate]) layer_1[gate] = {};
+    layer_1[gate].enabled = toggle.checked;
+  });
+  document.querySelectorAll('.settings-input[data-gate]').forEach(input => {
+    const gate = input.dataset.gate;
+    const key = input.dataset.key;
+    if (!layer_1[gate]) layer_1[gate] = {};
+    const val = parseFloat(input.value);
+    layer_1[gate][key] = isNaN(val) ? input.value : val;
+  });
+
+  try {
+    await api.patch('quality/config', {
+      quality_gates: {
+        enabled,
+        blocking_mode,
+        layer_1,
+        layer_2: { enabled: l2_enabled },
+        layer_3: { enabled: l3_enabled }
+      }
+    });
+    toast('Settings saved');
+  } catch (e) {
+    toast('Failed to save: ' + e.message);
+  }
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+
+// CSS animation
+const styleEl = document.createElement('style');
+styleEl.textContent = `@keyframes fadeSlideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }`;
+document.head.appendChild(styleEl);
+
+// ── Hash routing ────────────────────────────────────────────
+function routeFromHash() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  if (hash.startsWith('orb/')) {
+    const tail = hash.replace('orb/', '');
+    if (tail === 'new' || !tail) { navigate('orb', {}); return; }
+    navigate('orb', { opp_id: tail }); return;
+  }
+  // Backwards-compat redirect
+  if (hash.startsWith('investigation/')) {
+    const tail = hash.replace('investigation/', '');
+    if (tail === 'new' || !tail) { navigate('orb', {}); return; }
+    navigate('orb', { opp_id: tail }); return;
+  }
+  if (hash === 'settings') { navigate('settings'); return; }
+  navigate('dashboard');
+}
+
+window.addEventListener('hashchange', routeFromHash);
+routeFromHash();
+</script>
+</body>
+</html>

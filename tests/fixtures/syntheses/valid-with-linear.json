@@ -1,0 +1,109 @@
+{
+  "id": "synth-20260410-140000",
+  "opportunity_id": "opp-20260410-100000",
+  "status": "accepted",
+  "verdict_summary": "proceed — savings dashboard approved for immediate implementation, streak deferred pending results",
+  "convergence": [
+    {
+      "finding": "Value visibility drives Pro conversion more than gamification mechanics",
+      "sources": ["contrib-data-20260410-101500:find-001", "contrib-design-20260410-101500:find-001"],
+      "agent_count": 2
+    }
+  ],
+  "counter_signals": [],
+  "conflicts": [],
+  "evidence_summary": {
+    "total_findings": 5,
+    "by_function": {
+      "data": 2,
+      "design": 2,
+      "engineering": 1
+    },
+    "strongest_signal": {
+      "finding_ref": "contrib-data-20260410-101500:find-001",
+      "summary": "Trial-to-paid conversion at 37% with clear drop-off at day 14-21"
+    },
+    "strongest_counter_signal": null
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/savings-dashboard-spec.md",
+      "type": "spec",
+      "description": "Engineering spec for Pro savings dashboard",
+      "produced_by": "engineering"
+    }
+  ],
+  "recommendation": "proceed",
+  "rationale": "Savings dashboard is low-risk, high-signal. Validates the core hypothesis that value visibility drives retention before committing to gamification investment.",
+  "expected_impact": "5-8% trial-to-paid conversion improvement",
+  "estimated_effort": "3-4 sprints",
+  "solutions": [
+    {
+      "id": "sol-001",
+      "title": "Pro Savings Dashboard — real-time visibility into Pro savings",
+      "description": "Financial transparency dashboard showing cumulative Pro savings.",
+      "evidence_refs": ["contrib-data-20260410-101500:find-001"],
+      "recommendation": "proceed",
+      "rationale": "Approved by PM — low effort, high signal.",
+      "expected_impact": "5-8% conversion lift",
+      "estimated_effort": "3-4 sprints",
+      "ice_score": {
+        "impact": 7,
+        "confidence": 8,
+        "ease": 9,
+        "total": 504
+      },
+      "archetype": "incremental",
+      "linear_issue_id": "PRO-142",
+      "linear_issue_url": "https://linear.app/talabat/issue/PRO-142",
+      "status": "approved"
+    },
+    {
+      "id": "sol-002",
+      "title": "30-Day Savings Streak",
+      "description": "Gamified daily savings challenge with streak mechanics.",
+      "evidence_refs": ["contrib-design-20260410-101500:find-001"],
+      "recommendation": "proceed_if",
+      "rationale": "Deferred pending sol-001 results.",
+      "expected_impact": "10-15% retention improvement",
+      "estimated_effort": "4-6 sprints",
+      "ice_score": {
+        "impact": 9,
+        "confidence": 5,
+        "ease": 6,
+        "total": 270
+      },
+      "archetype": "moderate",
+      "depends_on": ["sol-001"],
+      "status": "deferred"
+    },
+    {
+      "id": "sol-003",
+      "title": "Social Savings Leaderboard",
+      "description": "Competitive savings ranking among friends with social graph integration.",
+      "evidence_refs": ["contrib-design-20260410-101500:find-001"],
+      "recommendation": "defer",
+      "rationale": "Requires social infrastructure. Deferred until sol-001 and sol-002 validate.",
+      "expected_impact": "20%+ Pro adoption if savings motivation validated",
+      "estimated_effort": "6-8 sprints",
+      "ice_score": {
+        "impact": 10,
+        "confidence": 3,
+        "ease": 3,
+        "total": 90
+      },
+      "archetype": "ambitious",
+      "depends_on": ["sol-001", "sol-002"],
+      "status": "deferred"
+    }
+  ],
+  "recommended_sequence": ["sol-001", "sol-002", "sol-003"],
+  "quality_score": {
+    "assumption_coverage": 0.8,
+    "evidence_balance": 0.75,
+    "conflict_surfacing": 0.85,
+    "artifact_relevance": 0.8,
+    "overall": 0.8
+  },
+  "created_at": "2026-04-10T14:00:00Z"
+}

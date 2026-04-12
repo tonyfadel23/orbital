@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-synthesis",
+  "title": "Orbital Synthesis",
+  "description": "The decision package produced by the Product Agent after reviewing all contributions — presented to the human PM for final decision.",
+  "type": "object",
+  "required": ["id", "opportunity_id", "status", "verdict_summary", "convergence", "counter_signals", "conflicts", "evidence_summary", "artifacts", "recommendation", "rationale", "expected_impact", "estimated_effort", "solutions", "quality_score", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^synth-\\d{8}-\\d{6}$"
+    },
+    "opportunity_id": {
+      "type": "string",
+      "pattern": "^opp-\\d{8}-\\d{6}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "presented", "accepted", "rejected", "revised"],
+      "description": "Lifecycle of the synthesis"
+    },
+    "verdict_summary": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "One-line verdict: {proceed|pivot|kill|need_more_data} — {rationale}. Max 200 characters."
+    },
+    "convergence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding", "sources", "agent_count"],
+        "properties": {
+          "finding": { "type": "string" },
+          "sources": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Contribution:finding references (e.g., contrib-design-...:find-001)"
+          },
+          "agent_count": {
+            "type": "integer",
+            "minimum": 2
+          }
+        }
+      },
+      "description": "Where multiple agents align"
+    },
+    "counter_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_ref", "summary", "severity", "addressed"],
+        "properties": {
+          "finding_ref": {
+            "type": "string",
+            "description": "Reference to the contribution:finding (e.g., contrib-data-...:find-003)"
+          },
+          "summary": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "notable", "minor"]
+          },
+          "addressed": {
+            "type": "boolean",
+            "description": "Was this counter-signal addressed by other evidence?"
+          }
+        }
+      },
+      "description": "First-class counter-signals — evidence that challenges the hypothesis. Every counter-signal must be explicitly addressed."
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["topic", "side_a", "side_b"],
+        "properties": {
+          "topic": { "type": "string" },
+          "side_a": {
+            "type": "object",
+            "required": ["position", "agents", "evidence"],
+            "properties": {
+              "position": { "type": "string" },
+              "agents": { "type": "array", "items": { "type": "string" } },
+              "evidence": { "type": "string" }
+            }
+          },
+          "side_b": {
+            "type": "object",
+            "required": ["position", "agents", "evidence"],
+            "properties": {
+              "position": { "type": "string" },
+              "agents": { "type": "array", "items": { "type": "string" } },
+              "evidence": { "type": "string" }
+            }
+          },
+          "resolution": {
+            "oneOf": [{ "type": "null" }, { "type": "string" }]
+          }
+        }
+      },
+      "description": "Where agents disagree — both sides stated with evidence"
+    },
+    "evidence_summary": {
+      "type": "object",
+      "required": ["total_findings", "by_function", "strongest_signal", "strongest_counter_signal"],
+      "properties": {
+        "total_findings": { "type": "integer", "minimum": 0 },
+        "by_function": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "strongest_signal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["finding_ref", "summary"],
+              "properties": {
+                "finding_ref": { "type": "string" },
+                "summary": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "strongest_counter_signal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["finding_ref", "summary"],
+              "properties": {
+                "finding_ref": { "type": "string" },
+                "summary": { "type": "string" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "type", "description", "produced_by"],
+        "properties": {
+          "path": { "type": "string" },
+          "type": { "type": "string" },
+          "description": { "type": "string" },
+          "produced_by": { "type": "string" }
+        }
+      }
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["proceed", "pivot", "kill", "need_more_data"],
+      "description": "Product Agent's recommended verdict"
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 50,
+      "description": "Why this recommendation — grounded in evidence, not opinion"
+    },
+    "expected_impact": {
+      "type": "string",
+      "description": "What changes if the PM approves"
+    },
+    "estimated_effort": {
+      "type": "string",
+      "description": "Engineering effort estimate from the Engineering agent"
+    },
+    "solutions": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "description", "evidence_refs", "recommendation", "rationale", "expected_impact", "estimated_effort", "ice_score", "archetype", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^sol-\\d{3}$"
+          },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recommendation": {
+            "type": "string",
+            "enum": ["proceed", "proceed_if", "defer", "kill"]
+          },
+          "rationale": { "type": "string" },
+          "expected_impact": { "type": "string" },
+          "estimated_effort": { "type": "string" },
+          "ice_score": {
+            "type": "object",
+            "required": ["impact", "confidence", "ease", "total"],
+            "properties": {
+              "impact": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "confidence": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "ease": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "total": { "type": "integer", "minimum": 1, "maximum": 1000 }
+            }
+          },
+          "linear_issue_id": { "type": "string" },
+          "linear_issue_url": { "type": "string", "format": "uri" },
+          "archetype": {
+            "type": "string",
+            "enum": ["incremental", "moderate", "ambitious"],
+            "description": "Solution risk/reward tier"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^sol-\\d{3}$" },
+            "description": "Solution IDs that must succeed before this one proceeds"
+          },
+          "proceed_conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["condition", "measurement", "threshold"],
+              "properties": {
+                "condition": { "type": "string" },
+                "measurement": { "type": "string" },
+                "threshold": { "type": "string" }
+              },
+              "additionalProperties": false
+            },
+            "description": "Conditions that must be met for proceed_if recommendations"
+          },
+          "solution_quality": {
+            "type": "object",
+            "required": ["evidence_grounding", "distinctiveness"],
+            "properties": {
+              "evidence_grounding": { "type": "number", "minimum": 0, "maximum": 1 },
+              "distinctiveness": { "type": "number", "minimum": 0, "maximum": 1 }
+            },
+            "additionalProperties": false,
+            "description": "Quality assessment of this solution"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["proposed", "approved", "deferred", "killed"]
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Individual solution tracks with ICE scoring — minimum 3 distinct solutions spanning incremental/moderate/ambitious archetypes"
+    },
+    "recommended_sequence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered list of solution IDs indicating recommended implementation sequence"
+    },
+    "quality_score": {
+      "type": "object",
+      "required": ["assumption_coverage", "evidence_balance", "conflict_surfacing", "artifact_relevance", "overall"],
+      "properties": {
+        "assumption_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_balance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "conflict_surfacing": { "type": "number", "minimum": 0, "maximum": 1 },
+        "artifact_relevance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "overall": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "description": "Quality evaluation of the orbital cycle"
+    },
+    "dot_vote_summary": {
+      "type": "object",
+      "required": ["heat_map", "consensus_ranking"],
+      "properties": {
+        "heat_map": {
+          "type": "object",
+          "description": "Per-function average scores: { function: { sol-001: avg, sol-002: avg } }",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "type": "number", "minimum": 1, "maximum": 10 }
+          }
+        },
+        "consensus_ranking": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^sol-\\d{3}$" },
+          "description": "Solution IDs ordered by aggregated dot-vote scores"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Aggregated results from the dot-vote feedback round"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

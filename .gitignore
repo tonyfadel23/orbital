@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.playwright-mcp/
+*.png
+playground-*.html
+skill-inspector.html
+playground-parts/
+.claude/settings.json
+data/

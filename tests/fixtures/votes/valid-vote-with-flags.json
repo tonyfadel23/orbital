@@ -1,0 +1,40 @@
+{
+  "id": "vote-engineering-20260410-141000",
+  "opportunity_id": "opp-20260410-100000",
+  "synthesis_id": "synth-20260410-130000",
+  "voter_function": "engineering",
+  "votes": [
+    {
+      "solution_id": "sol-001",
+      "scores": {
+        "feasibility": 9,
+        "effort": 8,
+        "technical_risk": 9
+      },
+      "rationale": "Savings dashboard is a straightforward frontend feature using existing API endpoints; 2-3 sprint effort",
+      "flags": ["opportunity"]
+    },
+    {
+      "solution_id": "sol-002",
+      "scores": {
+        "feasibility": 5,
+        "effort": 4,
+        "technical_risk": 3
+      },
+      "rationale": "Gamification engine requires new backend service, real-time streak calculation, and push notification integration",
+      "flags": ["risk", "needs_more_data"]
+    },
+    {
+      "solution_id": "sol-003",
+      "scores": {
+        "feasibility": 2,
+        "effort": 2,
+        "technical_risk": 1
+      },
+      "rationale": "Social proof requires ML recommendation pipeline, privacy review, and cross-service data sharing that does not exist today",
+      "flags": ["blocker"]
+    }
+  ],
+  "abstentions": [],
+  "created_at": "2026-04-10T14:10:00Z"
+}

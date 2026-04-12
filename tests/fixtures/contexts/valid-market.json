@@ -1,0 +1,30 @@
+{
+  "id": "L2b-ae",
+  "type": "market",
+  "name": "UAE",
+  "content": {
+    "market_overview": "Largest and most competitive market.",
+    "regulations": ["15% corporate income tax effective 2025/2026"]
+  },
+  "sufficiency": {
+    "status": "gaps_identified",
+    "gaps": [
+      {
+        "field": "personas",
+        "severity": "important",
+        "description": "Only 1 persona — needs more segmentation."
+      }
+    ]
+  },
+  "sources": [
+    {
+      "type": "report",
+      "name": "UAE Market Competitive Analysis",
+      "description": "Market overview and regulatory landscape",
+      "date": "2026-02-20",
+      "fields_informed": ["market_overview", "regulations"]
+    }
+  ],
+  "created_at": "2026-04-04T22:00:00Z",
+  "updated_at": "2026-04-04T22:00:00Z"
+}

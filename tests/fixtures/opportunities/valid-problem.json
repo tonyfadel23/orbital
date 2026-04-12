@@ -1,0 +1,25 @@
+{
+  "id": "opp-20260405-130000",
+  "type": "problem",
+  "title": "Grocery conversion is 12%, industry benchmark is 25%",
+  "description": "The grocery vertical has a significant conversion gap compared to industry benchmarks. This gap represents approximately $15M in unrealized GMV annually across MENA markets.",
+  "context_refs": ["L1-global", "L2a-groceries"],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "The benchmark comparison is valid given our market mix",
+      "status": "untested",
+      "importance": "critical"
+    }
+  ],
+  "success_signals": [
+    "Conversion rate reaches 20% within 2 quarters"
+  ],
+  "kill_signals": [
+    "Benchmark analysis shows our market mix makes 25% structurally unreachable"
+  ],
+  "status": "assembled",
+  "decision": null,
+  "created_at": "2026-04-05T13:00:00Z",
+  "updated_at": "2026-04-05T13:00:00Z"
+}

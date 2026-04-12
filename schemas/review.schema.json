@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-review",
+  "title": "Orbital Review",
+  "description": "Independent review of an agent's contribution by a dedicated reviewer agent.",
+  "type": "object",
+  "required": ["id", "contribution_id", "reviewer_function", "round", "passed", "issues", "strengths", "revisions_required", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^review-.+-\\d{8}-\\d{6}$",
+      "description": "Unique identifier: review-{function}-YYYYMMDD-HHMMSS"
+    },
+    "contribution_id": {
+      "type": "string",
+      "pattern": "^contrib-.+-\\d{8}-\\d{6}$",
+      "description": "ID of the contribution being reviewed"
+    },
+    "reviewer_function": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(-reviewer)?$",
+      "minLength": 2,
+      "maxLength": 60,
+      "description": "Which reviewer agent produced this review"
+    },
+    "review_type": {
+      "type": "string",
+      "enum": ["self", "peer"],
+      "description": "Whether this is a self-review or peer review"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which review round (1 = initial, 2+ = re-review after revision)"
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Whether the contribution meets quality standards"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 10
+      },
+      "description": "Specific problems found in the contribution"
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 10
+      },
+      "description": "What the contribution does well"
+    },
+    "revisions_required": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 10
+      },
+      "description": "Specific changes the agent must make before the contribution passes"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

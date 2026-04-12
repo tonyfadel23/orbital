@@ -1,0 +1,111 @@
+{
+  "id": "opp-20260410-100000",
+  "type": "hypothesis",
+  "title": "Gamified savings challenges will increase Pro subscription upgrades by 20%",
+  "description": "We hypothesize that introducing gamified savings challenges (e.g., '30-day savings streak') will convert Deal Hunter personas into Pro subscribers by making the value proposition tangible and habitual.",
+  "context_refs": ["L1-global", "L2a-pro", "L2a-fintech", "L2b-ae"],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "Deal Hunters are the highest-potential conversion segment for Pro",
+      "status": "untested",
+      "importance": "critical"
+    },
+    {
+      "id": "asm-002",
+      "content": "Gamification mechanics drive habit formation in food delivery apps",
+      "status": "untested",
+      "importance": "high"
+    },
+    {
+      "id": "asm-003",
+      "content": "Current Pro trial-to-paid conversion is below 40%",
+      "status": "untested",
+      "importance": "medium"
+    }
+  ],
+  "success_signals": [
+    "Trial-to-paid conversion increases from 35% to 55%",
+    "Deal Hunter segment Pro adoption increases by 20%"
+  ],
+  "kill_signals": [
+    "Gamification features show <5% engagement after 2 weeks",
+    "Users perceive savings challenges as gimmicky in qualitative research"
+  ],
+  "status": "assembled",
+  "roster": [
+    {
+      "function": "product",
+      "rationale": "Orchestrates the investigation, frames assumptions, produces synthesis",
+      "investigation_tracks": [
+        {
+          "track": "Assumption validation",
+          "question": "Are Deal Hunters really the highest-potential Pro conversion segment?",
+          "expected_artifacts": ["product.md"]
+        }
+      ],
+      "tool_access": ["google-drive", "gmail", "linear", "slack"]
+    },
+    {
+      "function": "design",
+      "rationale": "Explore gamification UX patterns and prototype savings challenge experiences",
+      "investigation_tracks": [
+        {
+          "track": "Gamification UX exploration",
+          "question": "What gamification patterns work for savings/loyalty in food delivery?",
+          "expected_artifacts": ["design.md", "prototype"]
+        },
+        {
+          "track": "Competitive design audit",
+          "question": "How do competitors handle loyalty gamification?",
+          "expected_artifacts": ["design.md"]
+        }
+      ],
+      "tool_access": ["figma", "google-drive"]
+    },
+    {
+      "function": "data",
+      "rationale": "Validate Deal Hunter segment size, current Pro conversion funnel, and baseline metrics",
+      "investigation_tracks": [
+        {
+          "track": "Segment analysis",
+          "question": "How large is the Deal Hunter segment and what is their current Pro conversion rate?",
+          "expected_artifacts": ["data.md"]
+        },
+        {
+          "track": "Baseline metrics",
+          "question": "What is the current trial-to-paid conversion rate and where do users drop off?",
+          "expected_artifacts": ["data.md"]
+        }
+      ],
+      "tool_access": ["google-sheets", "google-drive", "bigquery"]
+    },
+    {
+      "function": "engineering",
+      "rationale": "Assess feasibility of gamification features within existing app architecture",
+      "investigation_tracks": [
+        {
+          "track": "Feasibility assessment",
+          "question": "Can gamification mechanics be built within the existing Pro/Loyalty service architecture?",
+          "expected_artifacts": ["spec.md"]
+        }
+      ],
+      "tool_access": ["github", "google-drive"]
+    }
+  ],
+  "refinement_history": [
+    {
+      "action": "context_added",
+      "detail": "Added L2a-fintech context for wallet/payment integration with savings challenges",
+      "timestamp": "2026-04-10T10:00:00Z"
+    },
+    {
+      "action": "user_confirmed",
+      "detail": "User confirmed framing and assumptions after reviewing context layers",
+      "timestamp": "2026-04-10T10:10:00Z"
+    }
+  ],
+  "decision": null,
+  "created_at": "2026-04-10T10:00:00Z",
+  "updated_at": "2026-04-10T10:10:00Z"
+}

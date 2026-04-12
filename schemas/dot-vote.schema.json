@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-dot-vote",
+  "title": "Orbital Dot-Vote",
+  "description": "A single agent's scored evaluation of all solutions in a synthesis — produced during the dot-vote feedback round (Phase 4b).",
+  "type": "object",
+  "required": ["id", "opportunity_id", "synthesis_id", "voter_function", "votes", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^vote-[a-z][a-z0-9-]*-\\d{8}-\\d{6}$",
+      "description": "Unique identifier: vote-{function}-YYYYMMDD-HHMMSS"
+    },
+    "opportunity_id": {
+      "type": "string",
+      "pattern": "^opp-\\d{8}-\\d{6}$"
+    },
+    "synthesis_id": {
+      "type": "string",
+      "pattern": "^synth-\\d{8}-\\d{6}$"
+    },
+    "voter_function": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Agent function name (e.g., data, engineering, design)"
+    },
+    "votes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["solution_id", "scores", "rationale"],
+        "properties": {
+          "solution_id": {
+            "type": "string",
+            "pattern": "^sol-\\d{3}$"
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "description": "Function-specific scoring dimensions (e.g., measurability, feasibility). Each score 1-10."
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 20,
+            "description": "Why this agent scored this solution the way they did"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["blocker", "risk", "opportunity", "needs_more_data"]
+            },
+            "description": "Optional signals about this solution from this agent's perspective"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "One vote entry per solution the agent can meaningfully score"
+    },
+    "abstentions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["solution_id", "reason"],
+        "properties": {
+          "solution_id": {
+            "type": "string",
+            "pattern": "^sol-\\d{3}$"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why this agent cannot score this solution"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Solutions the agent chose not to score, with explanation"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

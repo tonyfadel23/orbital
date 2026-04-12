@@ -1,0 +1,25 @@
+{
+  "id": "L2a-groceries",
+  "type": "business_line",
+  "name": "Groceries (G&R + talabat mart)",
+  "content": {
+    "product_overview": "On-demand grocery and quick-commerce delivery.",
+    "goals": ["30%+ GMV growth YoY"]
+  },
+  "sufficiency": {
+    "status": "sufficient",
+    "gaps": []
+  },
+  "sources": [
+    {
+      "type": "dashboard",
+      "name": "Groceries GMV Dashboard",
+      "description": "GMV targets and growth metrics",
+      "date": "2026-03-01",
+      "url": "https://looker.talabat.com/groceries-gmv",
+      "fields_informed": ["goals"]
+    }
+  ],
+  "created_at": "2026-04-04T22:00:00Z",
+  "updated_at": "2026-04-04T22:00:00Z"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "ev-20260412-143500",
+  "opportunity_id": "opp-20260412-122621",
+  "source_type": "doc-search",
+  "query": "Customer research on fresh food trust and quality perception",
+  "status": "completed",
+  "source_detail": "Google Drive: Product Research/Q1 2026",
+  "findings": [
+    {
+      "content": "Q1 2026 qualitative study (n=24 interviews) found that 'freshness guarantee' was the #1 requested feature for tmart, ahead of price matching and faster delivery"
+    },
+    {
+      "content": "Internal deck 'Fresh Quality Playbook v2' documents a 15% reduction in fresh complaints after introducing photo verification at hub level in Jan 2026"
+    },
+    {
+      "metric": "Freshness guarantee interest",
+      "value": "83%",
+      "content": "83% of interviewed customers said they would order fresh more frequently if tmart offered a freshness guarantee with automatic refund"
+    }
+  ],
+  "summary": "Internal research strongly supports the hypothesis that trust is the primary barrier to fresh food adoption. Customers explicitly ask for freshness guarantees, and operational improvements (photo verification) have already reduced complaints by 15%.",
+  "confidence": "medium",
+  "sample_size": 24,
+  "created_at": "2026-04-12T14:35:00Z",
+  "completed_at": "2026-04-12T14:35:28Z"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ev-20260412-144500",
+  "opportunity_id": "opp-20260412-122621",
+  "source_type": "metrics-pull",
+  "query": "Repeat purchase rate for fresh-only baskets by cohort",
+  "status": "failed",
+  "error": "BigQuery permission denied: dataset prod.order_cohorts is restricted to data-eng team",
+  "created_at": "2026-04-12T14:45:00Z"
+}

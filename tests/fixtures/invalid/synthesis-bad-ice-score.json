@@ -1,0 +1,47 @@
+{
+  "id": "synth-20260410-150000",
+  "opportunity_id": "opp-20260410-100000",
+  "status": "draft",
+  "verdict_summary": "proceed — but with invalid ICE score",
+  "convergence": [],
+  "counter_signals": [],
+  "conflicts": [],
+  "evidence_summary": {
+    "total_findings": 1,
+    "by_function": { "data": 1 },
+    "strongest_signal": null,
+    "strongest_counter_signal": null
+  },
+  "artifacts": [],
+  "recommendation": "proceed",
+  "rationale": "This synthesis has an invalid ICE score — impact is 15 which exceeds the maximum of 10.",
+  "expected_impact": "Unknown",
+  "estimated_effort": "Unknown",
+  "solutions": [
+    {
+      "id": "sol-001",
+      "title": "A solution with an invalid ICE score",
+      "description": "The impact score is 15, which is above the maximum of 10",
+      "evidence_refs": ["contrib-data-20260410-101500:find-001"],
+      "recommendation": "proceed",
+      "rationale": "This should fail validation",
+      "expected_impact": "Unknown",
+      "estimated_effort": "Unknown",
+      "ice_score": {
+        "impact": 15,
+        "confidence": 5,
+        "ease": 5,
+        "total": 375
+      },
+      "status": "proposed"
+    }
+  ],
+  "quality_score": {
+    "assumption_coverage": 0.5,
+    "evidence_balance": 0.5,
+    "conflict_surfacing": 0.5,
+    "artifact_relevance": 0.5,
+    "overall": 0.5
+  },
+  "created_at": "2026-04-10T15:00:00Z"
+}

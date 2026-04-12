@@ -1,0 +1,17 @@
+{
+  "id": "opp-20260412-100000",
+  "type": "hypothesis",
+  "title": "E2E Test — Agree Phase Workspace",
+  "description": "Testing the agree phase flow end-to-end.",
+  "context_refs": ["L1-global"],
+  "assumptions": [
+    {"id": "asm-001", "content": "Users want faster checkout", "status": "untested", "importance": "critical"}
+  ],
+  "success_signals": ["Checkout time drops by 20%"],
+  "kill_signals": ["No change in checkout time after 2 weeks"],
+  "status": "aligning",
+  "roster": null,
+  "decision": null,
+  "created_at": "2026-04-12T10:00:00Z",
+  "updated_at": "2026-04-12T10:00:00Z"
+}

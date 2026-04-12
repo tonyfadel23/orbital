@@ -1,0 +1,21 @@
+{
+  "id": "opp-20260410-110000",
+  "type": "hypothesis",
+  "title": "This opportunity has an invalid refinement_history action",
+  "description": "The refinement_history entry has an action value not in the allowed enum",
+  "context_refs": [],
+  "assumptions": [],
+  "success_signals": [],
+  "kill_signals": [],
+  "status": "aligning",
+  "refinement_history": [
+    {
+      "action": "deleted_everything",
+      "detail": "This action type is not valid in the refinement_history enum",
+      "timestamp": "2026-04-10T11:00:00Z"
+    }
+  ],
+  "decision": null,
+  "created_at": "2026-04-10T11:00:00Z",
+  "updated_at": "2026-04-10T11:00:00Z"
+}

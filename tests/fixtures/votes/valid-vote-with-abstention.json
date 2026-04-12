@@ -1,0 +1,34 @@
+{
+  "id": "vote-design-20260410-140500",
+  "opportunity_id": "opp-20260410-100000",
+  "synthesis_id": "synth-20260410-130000",
+  "voter_function": "design",
+  "votes": [
+    {
+      "solution_id": "sol-001",
+      "scores": {
+        "ux_coherence": 8,
+        "research_alignment": 7,
+        "accessibility_risk": 9
+      },
+      "rationale": "Savings dashboard fits existing mental model; low friction to adopt with current design system components"
+    },
+    {
+      "solution_id": "sol-002",
+      "scores": {
+        "ux_coherence": 6,
+        "research_alignment": 5,
+        "accessibility_risk": 4
+      },
+      "rationale": "Streak mechanics add cognitive load; animations need careful accessibility review for motion sensitivity",
+      "flags": ["risk"]
+    }
+  ],
+  "abstentions": [
+    {
+      "solution_id": "sol-003",
+      "reason": "Social proof feature is outside design team's research scope; no user research data to evaluate"
+    }
+  ],
+  "created_at": "2026-04-10T14:05:00Z"
+}

@@ -1,0 +1,126 @@
+{
+  "id": "synth-20260405-130000",
+  "opportunity_id": "opp-20260405-120000",
+  "status": "presented",
+  "verdict_summary": "proceed — substitution anxiety confirmed at 23% abandonment; slot viz is a quick win, not the main play",
+  "convergence": [
+    {
+      "finding": "Delivery slot confidence visualization is low-effort and addresses a real (if smaller than assumed) pain point",
+      "sources": ["contrib-design-20260405-120100:find-002", "contrib-eng-20260405-120300:find-002"],
+      "agent_count": 2
+    },
+    {
+      "finding": "Substitution anxiety is a real driver of cart abandonment for Weekly Basket Builders",
+      "sources": ["contrib-design-20260405-120100:find-001", "contrib-data-20260405-120200:find-001"],
+      "agent_count": 2
+    }
+  ],
+  "conflicts": [
+    {
+      "topic": "Delivery slot importance",
+      "side_a": {
+        "position": "Delivery slot anxiety is a significant conversion barrier worth addressing",
+        "agents": ["design"],
+        "evidence": "Competitive analysis shows slot visualization is table stakes"
+      },
+      "side_b": {
+        "position": "Delivery slot abandonment is only 8% of total — payment step (34%) is the real bottleneck",
+        "agents": ["data"],
+        "evidence": "Funnel analysis — last 60 days, properly segmented"
+      },
+      "resolution": null
+    }
+  ],
+  "counter_signals": [
+    {
+      "finding_ref": "contrib-data-20260405-120200:find-002",
+      "summary": "Delivery slot abandonment is only 8% of total — payment step at 34% is the real bottleneck, challenging assumption asm-002",
+      "severity": "notable",
+      "addressed": true
+    }
+  ],
+  "evidence_summary": {
+    "total_findings": 8,
+    "by_function": {
+      "design": 3,
+      "data": 2,
+      "engineering": 3
+    },
+    "strongest_signal": {
+      "finding_ref": "contrib-data-20260405-120200:find-001",
+      "summary": "Cart abandonment at substitution step is 23% — confirms the core hypothesis"
+    },
+    "strongest_counter_signal": {
+      "finding_ref": "contrib-data-20260405-120200:find-002",
+      "summary": "Delivery slots are only 8% of abandonment — challenges assumption asm-002"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/grocery-list-prototype-v1.html",
+      "type": "prototype",
+      "description": "Interactive prototype of persistent grocery list with substitution preferences",
+      "produced_by": "design"
+    },
+    {
+      "path": "artifacts/engineering-spec-slot-viz.md",
+      "type": "spec",
+      "description": "Engineering spec for delivery slot confidence visualization",
+      "produced_by": "engineering"
+    }
+  ],
+  "recommendation": "proceed",
+  "rationale": "The core hypothesis (substitution anxiety drives abandonment) is supported by both quantitative data (23% of abandonments) and prototype testing. However, the secondary assumption about delivery slots is weaker than expected. Recommend proceeding with substitution preferences as primary initiative, slot visualization as a quick win, and deprioritizing broader slot anxiety work until payment step friction is investigated.",
+  "expected_impact": "Add-to-Cart rate increase of 3-5 percentage points within 8 weeks for Weekly Basket Builder segment, based on 23% substitution abandonment reduction.",
+  "estimated_effort": "Substitution preferences: 4-6 sprints (new microservice or InstaShop adaptation). Slot visualization: 2 sprints (frontend only).",
+  "solutions": [
+    {
+      "id": "sol-001",
+      "title": "Substitution Preference Engine — let users set replacement rules",
+      "description": "Allow users to pre-set substitution preferences per item category, reducing surprise replacements.",
+      "evidence_refs": ["contrib-design-20260405-120100:find-001", "contrib-data-20260405-120200:find-001"],
+      "recommendation": "proceed",
+      "rationale": "Addresses the 23% substitution abandonment directly with minimal infrastructure.",
+      "expected_impact": "3-5% add-to-cart rate increase for Weekly Basket Builders",
+      "estimated_effort": "4-6 sprints",
+      "ice_score": { "impact": 8, "confidence": 8, "ease": 6, "total": 384 },
+      "archetype": "incremental",
+      "status": "proposed"
+    },
+    {
+      "id": "sol-002",
+      "title": "Delivery Slot Confidence Viz — real-time slot availability indicator",
+      "description": "Visual indicator showing delivery slot confidence level during checkout.",
+      "evidence_refs": ["contrib-design-20260405-120100:find-002", "contrib-eng-20260405-120300:find-002"],
+      "recommendation": "proceed",
+      "rationale": "Quick frontend win — 2 sprints, addresses 8% slot-related abandonment.",
+      "expected_impact": "1-2% checkout completion improvement",
+      "estimated_effort": "2 sprints",
+      "ice_score": { "impact": 4, "confidence": 7, "ease": 9, "total": 252 },
+      "archetype": "incremental",
+      "status": "proposed"
+    },
+    {
+      "id": "sol-003",
+      "title": "Smart Basket Builder — AI-powered recurring order optimization",
+      "description": "ML-driven system that learns user patterns, predicts weekly baskets, pre-handles substitutions, and optimizes delivery windows.",
+      "evidence_refs": ["contrib-data-20260405-120200:find-001", "contrib-eng-20260405-120300:find-002"],
+      "recommendation": "defer",
+      "rationale": "Highest potential but requires ML pipeline and significant backend investment. Defer until simpler solutions validate the hypothesis.",
+      "expected_impact": "10-15% retention improvement for grocery segment",
+      "estimated_effort": "8-12 sprints",
+      "ice_score": { "impact": 9, "confidence": 4, "ease": 3, "total": 108 },
+      "archetype": "ambitious",
+      "status": "proposed"
+    }
+  ],
+  "recommended_sequence": ["sol-002", "sol-001", "sol-003"],
+  "quality_score": {
+    "assumption_coverage": 0.8,
+    "evidence_balance": 0.75,
+    "conflict_surfacing": 0.9,
+    "artifact_relevance": 0.85,
+    "overall": 0.82
+  },
+  "created_at": "2026-04-05T13:00:00Z"
+}

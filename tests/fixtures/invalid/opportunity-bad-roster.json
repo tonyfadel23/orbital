@@ -1,0 +1,19 @@
+{
+  "id": "opp-20260410-110000",
+  "type": "hypothesis",
+  "title": "This opportunity has an invalid roster entry",
+  "description": "The roster entry is missing required fields (rationale, investigation_tracks, tool_access)",
+  "context_refs": [],
+  "assumptions": [],
+  "success_signals": [],
+  "kill_signals": [],
+  "status": "assembled",
+  "roster": [
+    {
+      "function": "design"
+    }
+  ],
+  "decision": null,
+  "created_at": "2026-04-10T11:00:00Z",
+  "updated_at": "2026-04-10T11:00:00Z"
+}

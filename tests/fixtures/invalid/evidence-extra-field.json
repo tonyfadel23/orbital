@@ -1,0 +1,9 @@
+{
+  "id": "ev-20260412-160400",
+  "opportunity_id": "opp-20260412-122621",
+  "source_type": "data-query",
+  "query": "NPS scores for fresh food orders",
+  "status": "gathering",
+  "created_at": "2026-04-12T16:04:00Z",
+  "magic_field": "should not be here"
+}

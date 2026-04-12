@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON="$DIR/../.venv/bin/python3"
+VALIDATE="$DIR/validate.py"
+SCHEMA="$DIR/../schemas/opportunity.schema.json"
+
+echo "=== Opportunity Schema Tests ==="
+echo ""
+echo "--- Valid opportunities (should all pass) ---"
+"$PYTHON" "$VALIDATE" "$SCHEMA" "$DIR/fixtures/opportunities/"
+echo ""
+echo "--- Invalid opportunities (should all be rejected) ---"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/opportunity-missing-type.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/opportunity-bad-status.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/opportunity-bad-roster.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/opportunity-bad-refinement.json"
+echo ""
+echo "=== All opportunity tests passed ==="

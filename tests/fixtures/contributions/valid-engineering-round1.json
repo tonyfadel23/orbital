@@ -1,0 +1,58 @@
+{
+  "id": "contrib-eng-20260405-120300",
+  "opportunity_id": "opp-20260405-120000",
+  "agent_function": "engineering",
+  "round": 1,
+  "findings": [
+    {
+      "id": "find-001",
+      "type": "constraint",
+      "content": "Persistent grocery lists require a new microservice or significant extension of the current cart service. The cart service is shared across food and grocery — changes have blast radius.",
+      "confidence": 0.8,
+      "source": "Architecture review of cart-service repo and deployment topology",
+      "assumptions_addressed": [],
+      "direction": "neutral"
+    },
+    {
+      "id": "find-002",
+      "type": "evidence_candidate",
+      "content": "Delivery slot confidence visualization can be built in 2 sprints using existing slot allocation API. No backend changes required — purely frontend.",
+      "confidence": 0.85,
+      "source": "Slot allocation API documentation review + frontend codebase audit",
+      "assumptions_addressed": ["asm-002"],
+      "direction": "supports"
+    },
+    {
+      "id": "find-003",
+      "type": "opportunity",
+      "content": "The InstaShop integration already has a list management component that could be adapted for substitution preferences with 40% less effort than building from scratch.",
+      "confidence": 0.6,
+      "source": "InstaShop integration codebase review",
+      "assumptions_addressed": ["asm-001"],
+      "direction": "supports"
+    }
+  ],
+  "artifacts_produced": [
+    {
+      "path": "artifacts/engineering-spec-slot-viz.md",
+      "type": "spec",
+      "description": "Engineering spec for delivery slot confidence visualization — 2-sprint estimate"
+    }
+  ],
+  "cross_references": [
+    {
+      "references_contribution": "contrib-design-20260405-120100",
+      "finding_id": "find-002",
+      "reason": "Engineering feasibility confirms Design's slot visualization opportunity is low-effort"
+    }
+  ],
+  "self_review": {
+    "self_checked": true,
+    "self_check_notes": "Feasibility grounded in actual code review of cart-service and slot allocation API. Estimates broken down by component. Blast radius specified for cart service.",
+    "reviewer": "engineering-reviewer",
+    "review_passed": true,
+    "review_feedback": "Feasibility assessments are grounded in actual code review. InstaShop reuse opportunity needs validation with the integration team.",
+    "revisions_made": ["Added blast radius note for cart service changes"]
+  },
+  "created_at": "2026-04-05T12:03:00Z"
+}

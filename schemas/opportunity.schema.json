@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-opportunity",
+  "title": "Orbital Opportunity",
+  "description": "The center object of an orbital cycle — a hypothesis, problem statement, or strategic question that agents investigate in parallel.",
+  "type": "object",
+  "required": ["id", "type", "title", "description", "context_refs", "assumptions", "success_signals", "kill_signals", "status", "decision", "created_at", "updated_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^opp-\\d{8}-\\d{6}$",
+      "description": "Unique identifier: opp-YYYYMMDD-HHMMSS"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["hypothesis", "problem", "question"],
+      "description": "How the opportunity is framed"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 10,
+      "description": "One-line summary of the opportunity"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Full description with context and scope"
+    },
+    "context_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "References to context layer IDs (e.g., L1-global, L2a-groceries)"
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "content", "status", "importance"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^asm-\\d{3}$"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 10
+          },
+          "status": {
+            "type": "string",
+            "enum": ["untested", "supported", "contradicted", "inconclusive"]
+          },
+          "importance": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          }
+        }
+      },
+      "description": "Assumptions to be tested by the orbital investigation"
+    },
+    "success_signals": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What evidence would make us proceed"
+    },
+    "kill_signals": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What evidence would make us kill this"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["aligning", "assembled", "orbiting", "converging", "scoring", "landed"],
+      "description": "Current lifecycle state"
+    },
+    "decision": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["verdict", "rationale", "decided_at"],
+          "properties": {
+            "verdict": {
+              "type": "string",
+              "enum": ["proceed", "pivot", "kill", "need_more_data"]
+            },
+            "rationale": { "type": "string" },
+            "decided_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ],
+      "description": "Human PM's final decision (null until decided)"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "refinement_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "detail", "timestamp"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["context_added", "reframed", "assumption_added", "assumption_modified", "signal_modified", "user_confirmed"]
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 10
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "description": "History of refinements made during Phase 0 (AGREE)"
+    },
+    "roster": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["function", "rationale", "investigation_tracks", "tool_access"],
+            "properties": {
+              "function": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "investigation_tracks": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["track", "question", "expected_artifacts"],
+                  "properties": {
+                    "track": { "type": "string" },
+                    "question": {
+                      "type": "string",
+                      "minLength": 10
+                    },
+                    "expected_artifacts": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                }
+              },
+              "tool_access": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Team roster assembled during Phase 1 (ASSEMBLE) — null until team is confirmed"
+    }
+  },
+  "additionalProperties": false
+}

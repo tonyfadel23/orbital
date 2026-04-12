@@ -1,0 +1,33 @@
+{
+  "id": "opp-20260405-120000",
+  "type": "hypothesis",
+  "title": "Improving grocery conversion for weekly basket builders will increase Add-to-Cart rate by 15%",
+  "description": "We believe that reducing friction in the weekly grocery flow — specifically around list management, substitution anxiety, and delivery slot confidence — will increase Add-to-Cart rate from 12% to 27% for the Weekly Basket Builder persona.",
+  "context_refs": ["L1-global", "L2a-groceries", "L2b-ae"],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "Weekly basket builders abandon carts primarily due to substitution anxiety",
+      "status": "untested",
+      "importance": "critical"
+    },
+    {
+      "id": "asm-002",
+      "content": "Delivery slot uncertainty causes 30% of basket abandonment",
+      "status": "untested",
+      "importance": "high"
+    }
+  ],
+  "success_signals": [
+    "Add-to-Cart rate increases from 12% to 20%+ within 8 weeks",
+    "Cart abandonment rate decreases by 25%"
+  ],
+  "kill_signals": [
+    "No measurable change in Add-to-Cart after 4 weeks",
+    "User interviews show substitution is not a top-3 concern"
+  ],
+  "status": "assembled",
+  "decision": null,
+  "created_at": "2026-04-05T12:00:00Z",
+  "updated_at": "2026-04-05T12:00:00Z"
+}

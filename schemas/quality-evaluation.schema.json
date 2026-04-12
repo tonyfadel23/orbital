@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "quality-evaluation.schema.json",
+  "title": "Quality Evaluation",
+  "description": "Persisted quality evaluation results for a workspace",
+  "type": "object",
+  "required": ["opp_id", "timestamp", "layer_1"],
+  "properties": {
+    "opp_id": {
+      "type": "string",
+      "description": "Opportunity workspace ID"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 evaluation timestamp"
+    },
+    "layer_1": {
+      "type": "object",
+      "required": ["overall_passed", "overall_score", "gates"],
+      "properties": {
+        "overall_passed": {
+          "type": "boolean",
+          "description": "True if all blocking gates passed"
+        },
+        "overall_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Average score across all gates"
+        },
+        "gates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gate_result" }
+        }
+      }
+    },
+    "layer_2": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "overall_passed": { "type": "boolean" },
+            "rubric_scores": {
+              "type": "object",
+              "additionalProperties": { "type": "number" }
+            }
+          }
+        }
+      ],
+      "description": "LLM-as-Judge results (null until evaluated)"
+    },
+    "layer_3": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "overall_passed": { "type": "boolean" },
+            "rubric_scores": {
+              "type": "object",
+              "additionalProperties": { "type": "number" }
+            }
+          }
+        }
+      ],
+      "description": "Agent-as-Judge results (null until evaluated)"
+    }
+  },
+  "$defs": {
+    "gate_result": {
+      "type": "object",
+      "required": ["gate", "passed", "score", "threshold", "blocking", "details"],
+      "properties": {
+        "gate": {
+          "type": "string",
+          "enum": [
+            "assumption_coverage",
+            "confidence_floor",
+            "solution_distinctiveness",
+            "evidence_freshness",
+            "vote_quorum",
+            "finding_density"
+          ]
+        },
+        "passed": { "type": "boolean" },
+        "score": { "type": "number" },
+        "threshold": { "type": "number" },
+        "blocking": { "type": "boolean" },
+        "details": { "type": "string" }
+      }
+    }
+  }
+}

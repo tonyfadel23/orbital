@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-evidence",
+  "title": "Orbital Evidence",
+  "description": "Structured evidence gathered during opportunity framing — data queries, document searches, app reviews, market intel, Slack signals.",
+  "type": "object",
+  "required": ["id", "opportunity_id", "source_type", "query", "status", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ev-\\d{8}-\\d{6}$",
+      "description": "Unique identifier: ev-YYYYMMDD-HHMMSS"
+    },
+    "opportunity_id": {
+      "type": "string",
+      "pattern": "^opp-\\d{8}-\\d{6}$"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["data-query", "doc-search", "app-reviews", "slack-signal", "market-intel", "metrics-pull"],
+      "description": "Which evidence-gathering skill produced this"
+    },
+    "query": {
+      "type": "string",
+      "minLength": 5,
+      "description": "What the user asked to investigate"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["gathering", "completed", "failed"],
+      "description": "Current state of the evidence-gathering task"
+    },
+    "source_detail": {
+      "type": "string",
+      "description": "Specific source — BigQuery table, Drive folder, app store, Slack channel, URL"
+    },
+    "period": {
+      "type": "string",
+      "description": "Time range of the data, if applicable (e.g. '2025-10 to 2026-03')"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "description": "Name of the metric or data point"
+          },
+          "value": {
+            "description": "The metric value — number, string, or boolean"
+          },
+          "trend": {
+            "type": "string",
+            "description": "Direction or delta (e.g. '+6', 'declining', 'stable')"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Human-readable finding or insight"
+          }
+        }
+      },
+      "description": "Structured findings from the evidence source"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 20,
+      "description": "One-paragraph summary of what the evidence shows"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence in the evidence quality"
+    },
+    "sample_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of data points, documents, reviews, etc."
+    },
+    "raw_query": {
+      "type": "string",
+      "description": "The actual SQL, search query, or API call used"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error message if status is 'failed'"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "if": {
+    "properties": { "status": { "const": "completed" } }
+  },
+  "then": {
+    "required": ["findings", "summary", "confidence"]
+  },
+  "additionalProperties": false
+}

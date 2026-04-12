@@ -1,0 +1,26 @@
+{
+  "id": "ev-20260412-150000",
+  "opportunity_id": "opp-20260412-122621",
+  "source_type": "market-intel",
+  "query": "Q-commerce fresh food trust benchmarks MENA region",
+  "status": "completed",
+  "source_detail": "Web search: industry reports, competitor analysis",
+  "findings": [
+    {
+      "content": "Getir Turkey reports 40% of grocery GMV comes from fresh categories after introducing 'freshness or free' guarantee in 2025"
+    },
+    {
+      "metric": "Fresh share of basket (MENA avg)",
+      "value": "18%",
+      "content": "MENA q-commerce fresh penetration averages 18% of basket, vs 35% in mature European markets"
+    },
+    {
+      "content": "Carrefour Now (UAE) launched same-day fresh with temperature tracking in Q4 2025, claiming 2x repeat rate for fresh-first customers"
+    }
+  ],
+  "summary": "MENA fresh penetration in q-commerce (18%) significantly lags European markets (35%), indicating substantial growth headroom. Competitors who introduced freshness guarantees report meaningful uplift in fresh category share.",
+  "confidence": "medium",
+  "sample_size": 0,
+  "created_at": "2026-04-12T15:00:00Z",
+  "completed_at": "2026-04-12T15:01:12Z"
+}

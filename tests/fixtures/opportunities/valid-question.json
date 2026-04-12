@@ -1,0 +1,39 @@
+{
+  "id": "opp-20260405-140000",
+  "type": "question",
+  "title": "Should Orbital be built as a SaaS product for product teams?",
+  "description": "Orbital implements the Mental Model Shift as a Claude Code agent team. The question is whether this has SaaS potential — is the orbital model something other product teams would pay for, or is it inherently a personal power tool?",
+  "context_refs": [],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "Product teams are frustrated with sequential handoff models",
+      "status": "untested",
+      "importance": "critical"
+    },
+    {
+      "id": "asm-002",
+      "content": "AI agent teams are mature enough for production product work",
+      "status": "untested",
+      "importance": "critical"
+    },
+    {
+      "id": "asm-003",
+      "content": "Teams would trust AI-generated evidence for product decisions",
+      "status": "untested",
+      "importance": "high"
+    }
+  ],
+  "success_signals": [
+    "5+ product leaders express willingness to pay after demo",
+    "Orbital produces a decision package that matches or exceeds manual team output quality"
+  ],
+  "kill_signals": [
+    "Product leaders see this as a toy, not a tool",
+    "Agent output quality is too low for real decision-making"
+  ],
+  "status": "assembled",
+  "decision": null,
+  "created_at": "2026-04-05T14:00:00Z",
+  "updated_at": "2026-04-05T14:00:00Z"
+}

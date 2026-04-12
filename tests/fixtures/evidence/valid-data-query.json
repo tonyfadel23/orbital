@@ -1,0 +1,37 @@
+{
+  "id": "ev-20260412-143022",
+  "opportunity_id": "opp-20260412-122621",
+  "source_type": "data-query",
+  "query": "NPS scores for tmart fresh food orders, last 6 months",
+  "status": "completed",
+  "source_detail": "BigQuery: prod.nps_responses",
+  "period": "2025-10 to 2026-03",
+  "findings": [
+    {
+      "metric": "Overall NPS",
+      "value": 34,
+      "trend": "+6",
+      "content": "Overall NPS for tmart fresh food is 34, up from 28 six months ago"
+    },
+    {
+      "metric": "Fresh-only orders NPS",
+      "value": 41,
+      "content": "Customers who order only fresh items rate NPS at 41, significantly above platform average"
+    },
+    {
+      "metric": "3+ repeat buyers NPS",
+      "value": 58,
+      "trend": "+17 vs first-time",
+      "content": "Repeat fresh buyers (3+ orders) have NPS of 58, suggesting trust builds with experience"
+    },
+    {
+      "content": "Top complaint: 'items near expiry' accounts for 23% of negative NPS responses"
+    }
+  ],
+  "summary": "Fresh food NPS is trending positive (34, up from 28) with strong signal that trust builds through repeat purchases. Repeat buyers show NPS of 58 vs 41 for first-timers. Main drag is expiry concerns at 23% of negative responses.",
+  "confidence": "high",
+  "sample_size": 12847,
+  "raw_query": "SELECT category, AVG(nps_score) as avg_nps, COUNT(*) as n FROM prod.nps_responses WHERE category = 'fresh' AND response_date >= '2025-10-01' GROUP BY category",
+  "created_at": "2026-04-12T14:30:22Z",
+  "completed_at": "2026-04-12T14:30:45Z"
+}

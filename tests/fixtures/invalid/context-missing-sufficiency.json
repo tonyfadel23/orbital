@@ -1,0 +1,10 @@
+{
+  "id": "L2a-groceries",
+  "type": "business_line",
+  "name": "Groceries",
+  "content": {
+    "product_overview": "On-demand grocery delivery."
+  },
+  "created_at": "2026-04-04T22:00:00Z",
+  "updated_at": "2026-04-04T22:00:00Z"
+}

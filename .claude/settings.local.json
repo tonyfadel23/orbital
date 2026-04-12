@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_type",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(bash tests/schemas/test-dot-vote-schema.sh)",
+      "Bash(bash tests/schemas/test-synthesis-schema.sh)",
+      "Bash(bash:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "Bash(pkill -f \"python server/app.py\")",
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "Bash(pkill -f \"uvicorn server.app\")",
+      "Bash(disown)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "github",
+    "slack",
+    "bigquery"
+  ]
+}

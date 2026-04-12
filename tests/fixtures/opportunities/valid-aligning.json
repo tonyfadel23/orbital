@@ -1,0 +1,43 @@
+{
+  "id": "opp-20260410-090000",
+  "type": "problem",
+  "title": "Pro subscribers churning after first 3 months at 2x rate of non-Pro users",
+  "description": "Pro subscriber retention drops sharply after month 3, with churn rate 2x higher than non-Pro users in the same period. We need to understand whether this is an onboarding problem, a value perception gap, or a competitive alternative pulling users away.",
+  "context_refs": ["L1-global", "L2a-pro", "L2b-ae"],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "Pro subscribers don't discover enough value features in the first 90 days",
+      "status": "untested",
+      "importance": "critical"
+    },
+    {
+      "id": "asm-002",
+      "content": "Cashback and free delivery are not differentiated enough vs competitors",
+      "status": "untested",
+      "importance": "high"
+    }
+  ],
+  "success_signals": [
+    "90-day retention improves from 60% to 75%"
+  ],
+  "kill_signals": [
+    "Churn is driven by price sensitivity alone — no UX intervention viable"
+  ],
+  "status": "aligning",
+  "refinement_history": [
+    {
+      "action": "context_added",
+      "detail": "Added L2a-pro context layer showing current Pro value proposition and competitive landscape",
+      "timestamp": "2026-04-10T09:00:00Z"
+    },
+    {
+      "action": "reframed",
+      "detail": "Reframed from 'improve Pro retention' to specific churn window (month 3) based on data context",
+      "timestamp": "2026-04-10T09:05:00Z"
+    }
+  ],
+  "decision": null,
+  "created_at": "2026-04-10T09:00:00Z",
+  "updated_at": "2026-04-10T09:05:00Z"
+}

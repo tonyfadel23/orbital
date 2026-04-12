@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON="$DIR/../.venv/bin/python3"
+VALIDATE="$DIR/validate.py"
+SCHEMA="$DIR/../schemas/evidence.schema.json"
+
+echo "=== Evidence Schema Tests ==="
+echo ""
+echo "--- Valid evidence (should all pass) ---"
+"$PYTHON" "$VALIDATE" "$SCHEMA" "$DIR/fixtures/evidence/"
+echo ""
+echo "--- Invalid evidence (should all be rejected) ---"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/evidence-missing-query.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/evidence-bad-source-type.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/evidence-bad-id.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/evidence-completed-no-findings.json"
+"$PYTHON" "$VALIDATE" --expect-fail "$SCHEMA" "$DIR/fixtures/invalid/evidence-extra-field.json"
+echo ""
+echo "=== All evidence tests passed ==="

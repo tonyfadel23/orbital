@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orbital-context",
+  "title": "Orbital Context Layer",
+  "description": "Organizational context that grounds all agents in the same reality — global, business line, or market.",
+  "type": "object",
+  "required": ["id", "type", "name", "content", "sufficiency", "created_at", "updated_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^L[12][ab]?-.+$",
+      "description": "Context ref ID: {layer_type}-{name} (e.g., L1-global, L2a-groceries, L2b-ae)"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["global", "business_line", "market"],
+      "description": "What level of context this layer represents"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name of this context layer"
+    },
+    "content": {
+      "type": "object",
+      "description": "Flexible content object — structure varies by type but must contain substantive context for agents to ground their investigation"
+    },
+    "sufficiency": {
+      "type": "object",
+      "required": ["status", "gaps"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["sufficient", "gaps_identified", "insufficient"],
+          "description": "Whether this context layer has enough information for investigation"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "severity", "description"],
+            "properties": {
+              "field": { "type": "string" },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "important", "nice_to_have"]
+              },
+              "description": { "type": "string" }
+            }
+          },
+          "description": "Known information gaps in this context layer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sources": {
+      "type": "array",
+      "description": "Provenance — where the data in this context layer came from",
+      "items": {
+        "type": "object",
+        "required": ["type", "name"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["slack", "bigquery", "document", "interview", "dashboard", "survey", "analytics", "report"],
+            "description": "Kind of data source"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable source name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What this source contributed"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "When the data was sourced"
+          },
+          "url": {
+            "type": "string",
+            "description": "Link to the source (Slack thread, dashboard URL, doc link)"
+          },
+          "fields_informed": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Which content fields this source informed"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

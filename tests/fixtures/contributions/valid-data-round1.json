@@ -1,0 +1,37 @@
+{
+  "id": "contrib-data-20260405-120200",
+  "opportunity_id": "opp-20260405-120000",
+  "agent_function": "data",
+  "round": 1,
+  "findings": [
+    {
+      "id": "find-001",
+      "type": "measurement",
+      "content": "Current Add-to-Cart rate for Weekly Basket Builders is 11.3% (UAE) and 14.1% (KW). Cart abandonment at substitution step is 23% of all abandonments.",
+      "confidence": 0.9,
+      "source": "Analytics dashboard — last 90 days, filtered by persona segment",
+      "assumptions_addressed": ["asm-001"],
+      "direction": "supports"
+    },
+    {
+      "id": "find-002",
+      "type": "counter_signal",
+      "content": "Delivery slot selection accounts for only 8% of cart abandonments — lower than assumed. The bigger drop-off is at the payment step (34%).",
+      "confidence": 0.85,
+      "source": "Funnel analysis — grocery checkout flow, last 60 days",
+      "assumptions_addressed": ["asm-002"],
+      "direction": "contradicts"
+    }
+  ],
+  "artifacts_produced": [],
+  "cross_references": [],
+  "self_review": {
+    "self_checked": true,
+    "self_check_notes": "Data sources are within 90 days. Segmentation matches persona definitions. Counter-signals given equal weight.",
+    "reviewer": "data-reviewer",
+    "review_passed": true,
+    "review_feedback": "Data sources are recent and properly segmented. Counter-signal on delivery slots is significant and well-evidenced.",
+    "revisions_made": ["Added confidence intervals", "Clarified persona segmentation method"]
+  },
+  "created_at": "2026-04-05T12:02:00Z"
+}

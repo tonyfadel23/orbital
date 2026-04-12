@@ -1,0 +1,26 @@
+{
+  "id": "contrib-pm-20260405-120100",
+  "opportunity_id": "opp-20260405-120000",
+  "agent_function": "Product Manager",
+  "round": 1,
+  "findings": [
+    {
+      "id": "find-001",
+      "type": "evidence_candidate",
+      "content": "This has an invalid agent_function",
+      "confidence": 0.5,
+      "source": "Test",
+      "assumptions_addressed": [],
+      "direction": "neutral"
+    }
+  ],
+  "artifacts_produced": [],
+  "cross_references": [],
+  "self_review": {
+    "reviewer": "pm-reviewer",
+    "passed": true,
+    "feedback": "OK",
+    "revisions_made": []
+  },
+  "created_at": "2026-04-05T12:01:00Z"
+}

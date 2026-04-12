@@ -1,0 +1,31 @@
+{
+  "id": "contrib-data-20260410-101500",
+  "opportunity_id": "opp-20260410-100000",
+  "agent_function": "data",
+  "round": 1,
+  "investigation_brief_ref": "Segment analysis",
+  "findings": [
+    {
+      "id": "find-001",
+      "type": "evidence_candidate",
+      "content": "Current trial-to-paid conversion is 37%, confirming assumption asm-003 that it is below 40%. The drop-off is concentrated in days 14-21 of the trial period.",
+      "confidence": 0.9,
+      "source": "Pro subscription funnel from internal analytics, last 90 days, UAE segment",
+      "assumptions_addressed": ["asm-003"],
+      "direction": "supports"
+    }
+  ],
+  "artifacts_produced": [
+    {
+      "path": "artifacts/data.md",
+      "type": "analysis",
+      "description": "Pro trial-to-paid conversion funnel analysis with segment breakdown"
+    }
+  ],
+  "cross_references": [],
+  "self_review": {
+    "self_checked": true,
+    "self_check_notes": "Verified conversion rate against two reporting sources. Segment breakdown is clean — no blended metrics."
+  },
+  "created_at": "2026-04-10T10:15:00Z"
+}

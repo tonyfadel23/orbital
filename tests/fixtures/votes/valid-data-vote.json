@@ -1,0 +1,37 @@
+{
+  "id": "vote-data-20260410-140000",
+  "opportunity_id": "opp-20260410-100000",
+  "synthesis_id": "synth-20260410-130000",
+  "voter_function": "data",
+  "votes": [
+    {
+      "solution_id": "sol-001",
+      "scores": {
+        "measurability": 9,
+        "data_availability": 8,
+        "signal_clarity": 7
+      },
+      "rationale": "Strong existing data pipelines support measurement of savings visibility metrics with high confidence"
+    },
+    {
+      "solution_id": "sol-002",
+      "scores": {
+        "measurability": 6,
+        "data_availability": 5,
+        "signal_clarity": 4
+      },
+      "rationale": "Gamification engagement metrics require new instrumentation; baseline data is sparse for streak behaviors"
+    },
+    {
+      "solution_id": "sol-003",
+      "scores": {
+        "measurability": 3,
+        "data_availability": 2,
+        "signal_clarity": 3
+      },
+      "rationale": "Social proof features have no current data foundation; would need new collection infrastructure from scratch"
+    }
+  ],
+  "abstentions": [],
+  "created_at": "2026-04-10T14:00:00Z"
+}
