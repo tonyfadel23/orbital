@@ -890,13 +890,13 @@ async function renderDashboard(el) {
   if (state.workspaces.length === 0) {
     el.innerHTML = `
       <div class="section">
-        <div id="running-processes"></div>
         <div class="empty-state">
           <div class="empty-icon">&#9678;</div>
           <div class="empty-text">No orbs yet</div>
           <div class="empty-hint">Run a synthetic design sprint — parallel AI agents investigate, review, and deliver a decision brief.</div>
           <button class="btn-primary mb-16 mt-16" onclick="navigate('orb')">Launch your first orb</button>
         </div>
+        <div id="running-processes"></div>
       </div>`;
     renderProcesses();
     if (state._processPoll) clearInterval(state._processPoll);
@@ -906,7 +906,6 @@ async function renderDashboard(el) {
 
   el.innerHTML = `
     <div class="section-wide">
-      <div id="running-processes"></div>
       <div class="flex items-center justify-between mb-24">
         <div>
           <div class="label">Workspaces</div>
@@ -915,6 +914,9 @@ async function renderDashboard(el) {
         <button class="btn-primary" onclick="navigate('orb')">+ New Orb</button>
       </div>
       <div class="workspace-grid" id="ws-grid"></div>
+    </div>
+    <div class="section-wide">
+      <div id="running-processes"></div>
     </div>`;
 
   const grid = document.getElementById('ws-grid');
@@ -4432,18 +4434,49 @@ async function loadFramingQuality(opp_id) {
       success_signals: 'Success Signals', kill_signals: 'Kill Signals',
       context_refs: 'Context Refs', description_depth: 'Description',
     };
-    const dimHtml = Object.entries(dims).map(([k, v]) => {
+    const pillsHtml = Object.entries(dims).map(([k, v]) => {
       const label = dimLabels[k] || k;
       const dcls = v.passed ? 'gate-pill--pass' : v.score > 0 ? 'gate-pill--warn' : 'gate-pill--fail';
-      return `<span class="gate-pill ${dcls}" title="${esc(v.details)}">${label}</span>`;
+      return `<span class="gate-pill ${dcls}">${label}</span>`;
     }).join(' ');
-    body.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span class="quality-score quality-score--${cls}">${pct}%</span>${readyPill}
+    const dimRowsHtml = Object.entries(dims).map(([k, v]) => {
+      const label = dimLabels[k] || k;
+      const pctDim = Math.round(v.score * 100);
+      const fillCls = v.passed ? 'framing-dim__fill--pass' : v.score > 0 ? 'framing-dim__fill--warn' : 'framing-dim__fill--fail';
+      const scoreCls = qualityScoreClass(v.score);
+      return `<div class="framing-dim">
+        <span class="framing-dim__label">${esc(label)}</span>
+        <div class="framing-dim__bar"><div class="framing-dim__fill ${fillCls}" style="width:${pctDim}%"></div></div>
+        <span class="framing-dim__score quality-score--${scoreCls}">${pctDim}%</span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px">${dimHtml}</div>`;
+      <div class="framing-dim__detail">${esc(v.details)}</div>`;
+    }).join('');
+    body.innerHTML = `
+      <div class="framing-summary" onclick="toggleFramingBreakdown()" title="Click for breakdown">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="quality-score quality-score--${cls}">${pct}%</span>${readyPill}
+          <span class="text-2xs text-muted" id="framing-arrow" style="margin-left:auto">&#9660;</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${pillsHtml}</div>
+      </div>
+      <div class="framing-breakdown" id="framing-breakdown" style="display:none">
+        ${dimRowsHtml}
+      </div>`;
   } catch (err) {
     body.innerHTML = '<div class="muted-hint">Could not load</div>';
+  }
+}
+
+function toggleFramingBreakdown() {
+  const bd = document.getElementById('framing-breakdown');
+  const arrow = document.getElementById('framing-arrow');
+  if (!bd) return;
+  if (bd.style.display === 'none') {
+    bd.style.display = 'block';
+    if (arrow) arrow.innerHTML = '&#9650;';
+  } else {
+    bd.style.display = 'none';
+    if (arrow) arrow.innerHTML = '&#9660;';
   }
 }
 

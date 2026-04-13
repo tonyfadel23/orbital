@@ -162,6 +162,15 @@ class TestQualityRouter:
         assert "blocking_mode" in data
         assert "layer_1" in data
 
+    async def test_get_quality_config_has_all_default_gates(self, client):
+        """Config returns all 6 Layer 1 gates with their settings."""
+        resp = await client.get("/api/quality/config")
+        assert resp.status_code == 200
+        l1 = resp.json()["layer_1"]
+        expected = {"assumption_coverage", "confidence_floor", "solution_distinctiveness",
+                    "evidence_freshness", "vote_quorum", "finding_density"}
+        assert set(l1.keys()) == expected
+
     # --- PATCH /api/quality/config ---
 
     async def test_patch_quality_config(self, client):
@@ -241,6 +250,37 @@ class TestQualityRouter:
         data = resp.json()
         assert data["framing_score"] >= 0.8
         assert data["ready"] is True
+
+    async def test_framing_quality_dimensions_have_numeric_scores(self, client, tmp_data_dir):
+        """Each dimension must return a numeric score and details string for UI breakdowns."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-frame-dims"
+        ws_dir.mkdir(parents=True)
+        opp = {
+            "id": "opp-frame-dims", "status": "aligning",
+            "title": "HMW reduce churn in UAE Pro subscribers?",
+            "type": "hypothesis",
+            "description": "Investigate churn patterns among UAE Pro users who cancel within 3 months.",
+            "assumptions": [
+                {"id": "asm-001", "content": "Price is main churn driver", "status": "untested", "importance": "critical"},
+            ],
+            "success_signals": ["Retention +10%"],
+            "kill_signals": ["No change"],
+            "context_refs": [],
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp))
+        resp = await client.get("/api/workspaces/opp-frame-dims/quality/framing")
+        assert resp.status_code == 200
+        data = resp.json()
+        dims = data["dimensions"]
+        expected_keys = {"hmw_title", "type_set", "assumptions", "success_signals",
+                         "kill_signals", "context_refs", "description_depth"}
+        assert set(dims.keys()) == expected_keys
+        for key, dim in dims.items():
+            assert isinstance(dim["score"], (int, float)), f"{key} score must be numeric"
+            assert 0 <= dim["score"] <= 1.0, f"{key} score must be 0-1"
+            assert isinstance(dim["passed"], bool), f"{key} passed must be bool"
+            assert isinstance(dim["details"], str), f"{key} details must be string"
+            assert len(dim["details"]) > 0, f"{key} details must not be empty"
 
     async def test_framing_quality_not_found(self, client):
         resp = await client.get("/api/workspaces/opp-nonexistent/quality/framing")
