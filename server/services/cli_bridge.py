@@ -248,8 +248,7 @@ class CliBridge:
         ws_path = f"data/workspaces/{opp_id}"
 
         assumptions_text = "\n".join(
-            f"- {a}" if isinstance(a, str)
-            else f"- [{a.get('id','')}] {a.get('content','')}"
+            f"- [{a.get('id','')}] {a.get('content','')}"
             for a in assumptions
         )
         success_text = "\n".join(f"- {s}" for s in success_signals)
@@ -262,13 +261,10 @@ class CliBridge:
             tracks = entry.get("investigation_tracks", [])
             tracks_lines = []
             for t in tracks:
-                if isinstance(t, str):
-                    tracks_lines.append(f"- {t}")
-                else:
-                    tracks_lines.append(
-                        f"- Track: {t['track']}\n  Question: {t['question']}\n  "
-                        f"Expected artifacts: {', '.join(t.get('expected_artifacts', []))}"
-                    )
+                tracks_lines.append(
+                    f"- Track: {t['track']}\n  Question: {t['question']}\n  "
+                    f"Expected artifacts: {', '.join(t.get('expected_artifacts', []))}"
+                )
             tracks_text = "\n".join(tracks_lines)
 
             prompt = (
