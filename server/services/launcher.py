@@ -102,6 +102,13 @@ class AgentLauncher:
             return []
         return list(buf)[-lines:]
 
+    def get_full_output(self, opp_id: str) -> list[str]:
+        """Return all output across all turns (including resumed sessions)."""
+        buf = self._output.get(opp_id)
+        if not buf:
+            return []
+        return [line for line in buf if line != "--- RESUMED ---"]
+
     def get_latest_output(self, opp_id: str, lines: int = 200) -> list[str]:
         """Return output after the last --- RESUMED --- separator."""
         buf = self._output.get(opp_id)

@@ -163,7 +163,7 @@ def launch_decision_brief(opp_id: str, request: Request):
 
 
 @router.get("/{opp_id}/status")
-def launch_status(opp_id: str, request: Request, lines: int = 100):
+def launch_status(opp_id: str, request: Request, lines: int = 100, full: bool = False):
     launcher = request.app.state.launcher
     fn_outputs = launcher.get_function_outputs(opp_id)
     if fn_outputs:
@@ -172,9 +172,11 @@ def launch_status(opp_id: str, request: Request, lines: int = 100):
             "function_outputs": fn_outputs,
             "stale": launcher.is_stale(opp_id),
         }
+    output = (launcher.get_full_output(opp_id) if full
+              else launcher.get_latest_output(opp_id, lines=min(lines, 200)))
     return {
         "running": launcher.is_running(opp_id),
-        "output": launcher.get_latest_output(opp_id, lines=min(lines, 200)),
+        "output": output,
         "stale": launcher.is_stale(opp_id),
     }
 
