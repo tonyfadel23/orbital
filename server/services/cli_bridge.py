@@ -40,13 +40,13 @@ class CliBridge:
                 f"OPPORTUNITY: {title}\n"
                 f"ROSTER: {agents}\n\n"
                 f"ROSTER DETAIL:\n{roster_detail}\n\n"
-                f"STEP 1: Read {ws_path}/opportunity.json and context layers in data/context/. "
+                f"STEP 1: Read {ws_path}/opportunity.json and context layers in data/context/product_lines/. "
                 f"Read schemas/contribution.schema.json for the required output format.\n\n"
                 f"STEP 2: For EACH rostered function, use the Agent tool to spawn a subagent. "
                 f"Each Agent call must include:\n"
                 f"- The function name and its investigation tracks from the roster\n"
                 f"- The full opportunity context (title, description, assumptions, success/kill signals)\n"
-                f"- Instructions to read the context layers in data/context/\n"
+                f"- Instructions to read the context layers in data/context/product_lines/\n"
                 f"- Instructions to use the Write tool to save a contribution JSON file to "
                 f"{ws_path}/contributions/{{function}}-round-1.json matching schemas/contribution.schema.json\n"
                 f"- Instructions to use the Write tool to save a markdown artifact to "
@@ -73,9 +73,10 @@ class CliBridge:
                 f"The user replies, and you resume with `--resume`.\n"
                 f"Do NOT use AskUserQuestion, EnterPlanMode, or any interactive tools.\n"
                 f"Just write your response as plain text.\n\n"
-                f"NOW — read {ws_path}/opportunity.json, then load relevant context from data/context/:\n"
-                f"- L1/global.json (always)\n"
-                f"- Matching L2a/ file (business line) and L2b/ file (market) if relevant\n\n"
+                f"NOW — read {ws_path}/opportunity.json, then load relevant context from data/context/product_lines/:\n"
+                f"- _company/_context.md (always — company-level strategy)\n"
+                f"- Matching BL _context.md (e.g. groceries/_context.md) if relevant\n"
+                f"- Matching country _context.md (e.g. groceries/countries/uae/_context.md) if relevant\n\n"
                 f"Then respond with EXACTLY this structure:\n\n"
                 f"## My recommendation\n"
                 f"[How I'd frame this as an investigation — the real question underneath, 1-2 sentences]\n\n"
@@ -97,7 +98,7 @@ class CliBridge:
             )
 
         system_append = (
-            f"SCOPING RULES: Only read files in {ws_path}/ and data/context/. "
+            f"SCOPING RULES: Only read files in {ws_path}/ and data/context/product_lines/. "
             f"Do NOT read other workspaces. Do NOT run /explore or other skills. "
             f"Stay focused on this investigation."
         )
@@ -160,7 +161,7 @@ class CliBridge:
             f"- {ws_path}/opportunity.json (the framed opportunity)\n"
             f"- data/config.json (roster templates, available agents, tool registry)\n"
             f"- .claude/agents/*.md (agent definitions — skim Role and Investigation Tracks)\n"
-            f"- data/context/ layers per context_refs ({context_text})\n\n"
+            f"- data/context/product_lines/ layers per context_refs ({context_text})\n\n"
             f"STEP 2 — Present your recommendation with EXACTLY this structure:\n\n"
             f"## My recommendation\n"
             f"[Which roster template (core, market_entry, technical_deep_dive, full_spectrum), "
@@ -189,7 +190,7 @@ class CliBridge:
         )
 
         system_append = (
-            f"SCOPING RULES: Only read files in {ws_path}/, data/context/, data/config.json, "
+            f"SCOPING RULES: Only read files in {ws_path}/, data/context/product_lines/, data/config.json, "
             f"and .claude/agents/. Do NOT read other workspaces. "
             f"Stay focused on assembling the roster."
         )
@@ -263,8 +264,8 @@ class CliBridge:
                 f"YOUR INVESTIGATION TRACKS:\n{tracks_text}\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Read {ws_path}/opportunity.json for full details\n"
-                f"2. Read relevant context layers in data/context/ "
-                f"(L1/global.json always, plus matching L2a and L2b files)\n"
+                f"2. Read relevant context layers in data/context/product_lines/ "
+                f"(_company/_context.md always, plus matching BL and country _context.md files)\n"
                 f"3. Read schemas/contribution.schema.json for the required output format\n"
                 f"4. Investigate your assigned tracks thoroughly\n"
                 f"5. Use the Write tool to save your contribution JSON to "
@@ -280,7 +281,7 @@ class CliBridge:
             )
 
             system_append = (
-                f"SCOPING RULES: Only read files in {ws_path}/ and data/context/ and schemas/. "
+                f"SCOPING RULES: Only read files in {ws_path}/ and data/context/product_lines/ and schemas/. "
                 f"Do NOT read other workspaces. Stay focused on this investigation."
             )
 
