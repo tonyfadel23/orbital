@@ -34,6 +34,11 @@ Before drafting, confirm these four dimensions with the user. Do not assume broa
 
 If any are missing or vague, ask before proceeding. One question per gap.
 
+5. **Frame as HMW** — Rewrite the title as a **How Might We** question. HMW questions open solution space — specific enough to constrain the investigation but broad enough to invite multiple approaches. Examples:
+   - "HMW make fresh groceries a habitual purchase on tMart?"
+   - "HMW reduce first-order drop-off for new users in KSA?"
+   - "HMW shift Q-commerce from promo-dependent to organically retained?"
+
 ### Turn 1 — Context & Framing
 1. Read `{workspace}/opportunity.json`
 2. Load context layers from `data/context/`:
@@ -49,7 +54,7 @@ If any are missing or vague, ask before proceeding. One question per gap.
 ### Turn 2+ — Refine
 1. Process user's answer
 2. **MUST update `{workspace}/opportunity.json` BEFORE producing response** — use the Write tool to update:
-   - `title` — sharpened
+   - `title` — sharpened as a HMW question
    - `type` — hypothesis / problem / question
    - `description` — refined
    - `assumptions` — each with id, content, status, importance
@@ -62,7 +67,7 @@ If any are missing or vague, ask before proceeding. One question per gap.
 
 ### Exit — Framing Complete (3-5 turns)
 When the framing is solid:
-- `opportunity.json` has: clear title, typed opportunity, populated assumptions (3-5), success signals, kill signals, context refs
+- `opportunity.json` has: clear HMW title, typed opportunity, populated assumptions (3-5), success signals, kill signals, context refs
 - Status remains `"assembled"` (set during workspace creation or first confirm)
 - Recommend: "Framing is solid. Run `/assemble` to set up the investigation team."
 

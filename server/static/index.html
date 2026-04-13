@@ -2303,7 +2303,10 @@ function showEvidenceReview(overlay, sources, query) {
         const srcMeta = EVIDENCE_SOURCES[src] || { label: src, icon: '🔍' };
         const displayLines = lines
           .map(l => { try { const j = JSON.parse(l); return j.content || j.result || ''; } catch { return l; } })
-          .filter(Boolean);
+          .filter(Boolean)
+          .map(l => (l.includes('budget_exceeded') || l.includes('Budget has been exceeded'))
+            ? 'API budget limit reached. Check your Anthropic account billing settings.'
+            : l);
         cardEl.innerHTML = `
           <div class="evidence-review-card__header">
             <label class="evidence-review-card__check">
@@ -2413,6 +2416,9 @@ async function pollEvidenceStatus() {
         const displayLines = lines
           .map(l => { try { const j = JSON.parse(l); return j.content || j.result || ''; } catch { return l; } })
           .filter(Boolean)
+          .map(l => (l.includes('budget_exceeded') || l.includes('Budget has been exceeded'))
+            ? 'API budget limit reached. Check your Anthropic account billing settings.'
+            : l)
           .slice(-5);
         if (displayLines.length) outputEl.textContent = displayLines.join('\n');
       }
@@ -2754,9 +2760,16 @@ function renderPreviewCards(opp, catalog, loadedContext) {
         <span class="ws-type mb-6 inline-block">${oppType}</span>
         <div class="text-md font-weight-500 mb-4">${oppTitle}</div>
         <div class="text-sm text-secondary lh-16">${oppDesc}</div>
-        ${assumptionsHtml}${successHtml}${killHtml}
       </div>
     </div>
+    ${assumptionsHtml ? `<div class="setup-card">
+      <div class="setup-card-title">Assumptions${(opp.assumptions||[]).length ? ` (${(opp.assumptions||[]).length})` : ''}</div>
+      <div class="setup-card-body">${assumptionsHtml}</div>
+    </div>` : ''}
+    ${successHtml || killHtml ? `<div class="setup-card">
+      <div class="setup-card-title">Signals</div>
+      <div class="setup-card-body">${successHtml}${killHtml}</div>
+    </div>` : ''}
     <div class="setup-card">
       <div class="setup-card-title">Context${loadedContext.length ? ` (${loadedContext.length})` : ''}</div>
       <div class="setup-card-body">${contextHtml}</div>

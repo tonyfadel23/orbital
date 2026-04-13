@@ -545,9 +545,9 @@ class TestCliBridge:
         bridge = CliBridge(tmp_project_root)
         cmd = bridge.generate_command("opp-rec-order")
         lower = cmd.lower()
-        rec_pos = lower.index("my recommendation")
-        supports_pos = lower.index("what supports")
-        assert rec_pos < supports_pos, "Recommendation must appear before supporting evidence"
+        rec_pos = lower.index("how might we")
+        supports_pos = lower.index("what the data says")
+        assert rec_pos < supports_pos, "HMW framing must appear before supporting data"
 
     def test_assemble_prompt_leads_with_recommendation(self, tmp_project_root, tmp_data_dir):
         """Phase 1 prompt must put 'My recommendation' BEFORE 'What supports this'."""
