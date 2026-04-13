@@ -58,21 +58,6 @@ const AGENT_COLORS = {
 };
 function agentColor(fn) { return AGENT_COLORS[fn] || '#6b7a90'; }
 function rosterFn(r) { return r.function || r.agent_function; }
-function showThinking(feedId) {
-  const feed = document.getElementById(feedId);
-  if (!feed) return;
-  removeThinking(feedId);
-  const div = document.createElement('div');
-  div.className = 'ai-thinking';
-  div.id = feedId + '-thinking';
-  div.innerHTML = '<span class="ai-chat-label">thinking</span><span class="ai-thinking-dots"><span>.</span><span>.</span><span>.</span></span>';
-  feed.appendChild(div);
-  feed.scrollTop = feed.scrollHeight;
-}
-function removeThinking(feedId) {
-  const el = document.getElementById(feedId + '-thinking');
-  if (el) el.remove();
-}
 function normalizeAssumption(a, i) {
   const mkId = () => `asm-${String(i+1).padStart(3,'0')}`;
   if (typeof a === 'string') {
@@ -1247,6 +1232,8 @@ function renderAgreeCards(el, opp_id, opp) {
       card.remove();
     }
   });
+  // Load framing quality asynchronously
+  if (state.setupOppId) loadFramingQuality(state.setupOppId);
 }
 
 // ── Agent icon SVGs ──────────────────────────────────────
@@ -1696,7 +1683,6 @@ async function sendSetupMessage(fromBtn) {
     // Edit mode first message — launch fresh agent on existing workspace
     state._editMode = false;
     appendSetupMessage('you', 'var(--color-data)', text, false);
-    showThinking('setup-feed');
     if (!state.setupOppId) return;
     try {
       state._setupState = 'running';
@@ -1708,13 +1694,12 @@ async function sendSetupMessage(fromBtn) {
       pollSetupAgent(state.setupOppId);
       updateOrbPreview(state.setupOppId);
       await api.post(`launch/${state.setupOppId}/send`, { message: text });
-    } catch (err) { toast('Error: ' + err.message); removeThinking('setup-feed'); }
+    } catch (err) { toast('Error: ' + err.message); }
     return;
   }
 
   // Subsequent messages — send to running agent or resume via --resume
   appendSetupMessage('you', 'var(--color-data)', text, false);
-  showThinking('setup-feed');
   if (!state.setupOppId) return;
   try {
     state._setupState = 'running';
@@ -1733,7 +1718,7 @@ async function sendSetupMessage(fromBtn) {
     // Mark when we sent so poll doesn't race ahead of subprocess startup
     state._setupSentAt = Date.now();
     await api.post(`launch/${state.setupOppId}/send`, { message: text });
-  } catch (err) { console.warn('sendSetupMessage error:', err); removeThinking('setup-feed'); }
+  } catch (err) { console.warn('sendSetupMessage error:', err); }
 }
 
 function showHints(hints) { hints.classList.remove('d-none'); }
@@ -1835,7 +1820,6 @@ async function stopAgent() {
       updateActivityIndicator();
       updateSendButton(false);
       const feedId = state.view === 'orb' ? 'agent-feed' : 'setup-feed';
-      removeThinking(feedId);
       const feed = document.getElementById(feedId);
       if (feed) {
         const div = document.createElement('div');
@@ -1848,6 +1832,38 @@ async function stopAgent() {
       if (chatInput) { chatInput.disabled = false; chatInput.focus(); }
     }
   } catch (err) { console.error('Stop failed:', err); }
+}
+
+async function restartAgent() {
+  const opp_id = state.setupOppId || state.currentOpp?.id;
+  if (!opp_id) return;
+  try {
+    const r = await fetch(`/api/launch/${opp_id}/restart`, { method: 'POST' });
+    const d = await r.json();
+    if (d.restarted) {
+      if (state._setupPoll) { clearInterval(state._setupPoll); state._setupPoll = null; }
+      if (state._agentPoll) { clearInterval(state._agentPoll); state._agentPoll = null; }
+      if (state._activityTick) { clearInterval(state._activityTick); state._activityTick = null; }
+      state._setupState = 'waiting';
+      state._agentStartTime = null;
+      state._isStale = false;
+      state._setupOutputLen = 0;
+      state._setupFeedLen = 0;
+      updateActivityIndicator();
+      updateSendButton(false);
+      const feedId = state.view === 'orb' ? 'agent-feed' : 'setup-feed';
+      const feed = document.getElementById(feedId);
+      if (feed) {
+        const div = document.createElement('div');
+        div.className = 'ai-chat-msg';
+        div.innerHTML = '<span class="ai-chat-label text-counter">restarted</span><span class="ai-chat-text">Agent restarted. Send a message to continue.</span>';
+        feed.appendChild(div);
+        feed.scrollTop = feed.scrollHeight;
+      }
+      const chatInput = document.getElementById(state.view === 'orb' ? 'chat-input' : 'setup-input');
+      if (chatInput) { chatInput.disabled = false; chatInput.placeholder = 'Send a message to restart...'; chatInput.focus(); }
+    }
+  } catch (err) { console.error('Restart failed:', err); }
 }
 
 function updateSendButton(running) {
@@ -1936,6 +1952,9 @@ function pollSetupAgent(opp_id) {
         state._setupSentAt = null;
       }
 
+      // Track stale state from backend
+      state._isStale = !!s.stale;
+
       // Chat input — always typeable, placeholder signals state
       const chatInput = document.getElementById('setup-input');
       const chatBtn = document.getElementById('setup-send-btn');
@@ -1971,7 +1990,10 @@ function updateActivityIndicator() {
   // Status label
   let statusHtml = '';
   let isActive = false;
-  if (state._setupState === 'running') {
+  if (state._setupState === 'running' && state._isStale) {
+    statusHtml = '<span class="activity-dot activity-dot--stale"></span> Stuck <span class="text-muted" style="font-size:10px;margin-left:4px">Esc to stop</span> <a href="#" onclick="restartAgent();return false" class="activity-restart">Restart</a>';
+    isActive = true;
+  } else if (state._setupState === 'running') {
     statusHtml = '<span class="activity-dot"></span> Thinking <span class="text-muted" style="font-size:10px;margin-left:4px">Esc to stop</span>';
     isActive = true;
   } else if (state._setupState === 'waiting') {
@@ -2020,7 +2042,6 @@ function updateSetupFeed(lines) {
   const messages = parseStreamJson(newLines, { fullText: true, suppressDone: true });
   if (!messages.length) return;
 
-  removeThinking('setup-feed');
   const empty = feed.querySelector('.setup-chat-empty');
   if (empty) empty.remove();
 
@@ -2089,7 +2110,6 @@ async function handleCommandAction(cmd) {
   if (cmd === '/assemble') {
     // Show the command in chat feed
     appendSetupMessage('you', 'var(--color-data)', '/assemble', false);
-    showThinking('setup-feed');
 
     try {
       // Stop current agree-phase agent if still running
@@ -2106,14 +2126,12 @@ async function handleCommandAction(cmd) {
       pollSetupAgent(opp_id);
     } catch (err) {
       toast('Error launching assemble: ' + err.message);
-      removeThinking('setup-feed');
     }
     return;
   }
 
   if (cmd === '/orbit') {
     appendSetupMessage('you', 'var(--color-data)', '/orbit', false);
-    showThinking('setup-feed');
 
     try {
       // Stop current assemble-phase agent if still running
@@ -2130,7 +2148,6 @@ async function handleCommandAction(cmd) {
       pollSetupAgent(opp_id);
     } catch (err) {
       toast('Error launching orbit: ' + err.message);
-      removeThinking('setup-feed');
     }
     return;
   }
@@ -2605,6 +2622,64 @@ async function setEvidenceApproval(oppId, evidenceId, status, sourceType) {
   }
 }
 
+async function openSignalDetail(itemType, index) {
+  try {
+    const ws = await api.get(`workspaces/${state.setupOppId}`);
+    if (!ws) { toast('Could not load workspace'); return; }
+    const opp = ws.opportunity || {};
+    let item, title, dotColor;
+    if (itemType === 'assumption') {
+      const raw = (opp.assumptions || [])[index];
+      item = normalizeAssumption(raw, index);
+      title = 'Assumption';
+      dotColor = 'var(--color-neutral-light)';
+    } else if (itemType === 'success_signal') {
+      item = (opp.success_signals || [])[index];
+      if (typeof item === 'string') item = { content: item };
+      title = 'Success Signal';
+      dotColor = 'var(--color-accent)';
+    } else {
+      item = (opp.kill_signals || [])[index];
+      if (typeof item === 'string') item = { content: item };
+      title = 'Kill Signal';
+      dotColor = 'var(--color-counter)';
+    }
+    if (!item) { toast('Item not found'); return; }
+
+    const text = item.content || item.text || item.signal || '';
+    const pills = [];
+    if (item.status) pills.push(`<span class="gate-pill gate-pill--${item.status === 'validated' ? 'pass' : item.status === 'invalidated' ? 'fail' : 'warn'}">${esc(item.status)}</span>`);
+    if (item.importance) pills.push(`<span class="gate-pill gate-pill--${item.importance === 'critical' ? 'fail' : item.importance === 'high' ? 'warn' : 'pass'}">${esc(item.importance)}</span>`);
+    const pillsHtml = pills.length ? `<div style="display:flex;gap:6px;margin-bottom:12px">${pills.join('')}</div>` : '';
+
+    const metaItems = [];
+    if (item.id) metaItems.push(`<strong>ID:</strong> ${esc(item.id)}`);
+    if (item.confidence != null) metaItems.push(`<strong>Confidence:</strong> ${item.confidence}`);
+    if (item.source) metaItems.push(`<strong>Source:</strong> ${esc(item.source)}`);
+    const metaHtml = metaItems.length ? `<div class="evidence-detail-meta" style="margin-top:16px">${metaItems.join('<br>')}</div>` : '';
+
+    // Find provenance from refinement_history
+    const history = opp.refinement_history || [];
+    const provEntries = history.filter(h => {
+      const d = (h.details || '').toLowerCase();
+      return d.includes(text.substring(0, 30).toLowerCase());
+    });
+    const provHtml = provEntries.length
+      ? `<div style="margin-top:16px"><div class="text-xs text-muted mb-4" style="font-weight:600">PROVENANCE</div>${provEntries.map(h =>
+          `<div class="text-sm text-secondary" style="margin-bottom:6px"><span class="gate-pill gate-pill--pass">${esc(h.action || 'added')}</span> ${esc(h.details || '')}<div class="text-xs text-muted mt-2">${h.timestamp ? new Date(h.timestamp).toLocaleString() : ''}</div></div>`
+        ).join('')}</div>`
+      : '';
+
+    const html = `
+      <div style="margin-bottom:12px"><span class="opp-signal-dot" style="background:${dotColor};display:inline-block;vertical-align:middle;margin-right:8px"></span><span class="text-md font-weight-500">${esc(text)}</span></div>
+      ${pillsHtml}${metaHtml}${provHtml}`;
+    openSlideOver(title, html);
+  } catch (err) {
+    console.warn('Signal detail error:', err);
+    toast('Failed to load detail');
+  }
+}
+
 function autoResumeAfterEvidence() {
   if (!state.setupOppId) return;
   // Only auto-resume if the agree agent is waiting for input
@@ -2682,11 +2757,11 @@ function renderPreviewCards(opp, catalog, loadedContext) {
   const oppTitle = esc(opp.title || 'Untitled');
   const oppDesc = esc(opp.description || '');
 
-  function renderSignalSection(title, items, dotColor) {
+  function renderSignalSection(title, items, dotColor, showTitle = true, itemType = null) {
     if (!items || !items.length) return '';
     return `<div class="opp-signals">
-      <div class="opp-signals-title">${title} (${items.length})</div>
-      ${items.map(s => {
+      ${showTitle ? `<div class="opp-signals-title">${title} (${items.length})</div>` : ''}
+      ${items.map((s, idx) => {
         const text = typeof s === 'string' ? s : (s.content || s.text || s.signal || '');
         if (!text) return '';
         const conf = s.confidence;
@@ -2697,14 +2772,16 @@ function renderPreviewCards(opp, catalog, loadedContext) {
           const srcTag = source ? `<span class="signal-source">${esc(source)}</span>` : '';
           meta = `<div class="signal-meta">${confBar}${srcTag}</div>`;
         }
-        return `<div class="opp-signal-item"><span class="opp-signal-dot" style="background:${dotColor}"></span><div class="signal-content"><span>${esc(text)}</span>${meta}</div></div>`;
+        const clickAttr = itemType ? ` onclick="openSignalDetail('${itemType}',${idx})" style="cursor:pointer"` : '';
+        const chevron = itemType ? '<span class="text-muted gap-ctx-chevron">&rsaquo;</span>' : '';
+        return `<div class="opp-signal-item"${clickAttr}><span class="opp-signal-dot" style="background:${dotColor}"></span><div class="signal-content"><span>${esc(text)}</span>${meta}</div>${chevron}</div>`;
       }).join('')}
     </div>`;
   }
 
-  const assumptionsHtml = renderSignalSection('Assumptions', (opp.assumptions || []).map(normalizeAssumption), 'var(--color-neutral-light)');
-  const successHtml = renderSignalSection('Success Signals', opp.success_signals, 'var(--color-accent)');
-  const killHtml = renderSignalSection('Kill Signals', opp.kill_signals, 'var(--color-counter)');
+  const assumptionsHtml = renderSignalSection('Assumptions', (opp.assumptions || []).map(normalizeAssumption), 'var(--color-neutral-light)', false, 'assumption');
+  const successHtml = renderSignalSection('Success Signals', opp.success_signals, 'var(--color-accent)', true, 'success_signal');
+  const killHtml = renderSignalSection('Kill Signals', opp.kill_signals, 'var(--color-counter)', true, 'kill_signal');
 
   // Context card — only show what agent has loaded
   let contextHtml = '';
@@ -2752,6 +2829,12 @@ function renderPreviewCards(opp, catalog, loadedContext) {
       <div class="setup-card-title">Progress</div>
       <div class="setup-card-body">
         <div class="setup-phases">${phaseHtml}</div>
+      </div>
+    </div>
+    <div class="setup-card" id="framing-quality-card">
+      <div class="setup-card-title">Framing Quality</div>
+      <div class="setup-card-body" id="framing-quality-body">
+        <div class="muted-hint">Loading...</div>
       </div>
     </div>
     <div class="setup-card">
@@ -3657,7 +3740,6 @@ function updateAgentFeed(lines) {
   state._lastFeedLen = lines.length;
   const messages = parseStreamJson(newLines);
   if (!messages.length) return;
-  removeThinking('agent-feed');
   const empty = feed.querySelector('.ai-empty');
   if (empty) empty.remove();
   for (const m of messages) {
@@ -3946,13 +4028,12 @@ async function sendChatMessage() {
     feed.appendChild(div);
     feed.scrollTop = feed.scrollHeight;
   }
-  showThinking('agent-feed');
   // Send to backend
   const opp_id = state.currentOpp?.id;
   if (!opp_id) return;
   try {
     await api.post(`launch/${opp_id}/send`, { message: text });
-  } catch (err) { console.warn('sendChatMessage error:', err); removeThinking('agent-feed'); }
+  } catch (err) { console.warn('sendChatMessage error:', err); }
 }
 
 function connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws) {
@@ -4261,6 +4342,38 @@ function qualityScoreClass(score) {
 function qualityPill(passed, label) {
   const cls = passed ? 'gate-pill--pass' : 'gate-pill--fail';
   return `<span class="gate-pill ${cls}">${label || (passed ? 'PASS' : 'FAIL')}</span>`;
+}
+
+async function loadFramingQuality(opp_id) {
+  const body = document.getElementById('framing-quality-body');
+  if (!body) return;
+  try {
+    const data = await api.get(`workspaces/${opp_id}/quality/framing`);
+    if (!data) { body.innerHTML = '<div class="muted-hint">No data</div>'; return; }
+    const pct = Math.round(data.framing_score * 100);
+    const cls = qualityScoreClass(data.framing_score);
+    const readyPill = data.ready
+      ? '<span class="gate-pill gate-pill--pass" style="margin-left:8px">READY TO ASSEMBLE</span>'
+      : '';
+    const dims = data.dimensions || {};
+    const dimLabels = {
+      hmw_title: 'HMW Title', type_set: 'Type', assumptions: 'Assumptions',
+      success_signals: 'Success Signals', kill_signals: 'Kill Signals',
+      context_refs: 'Context Refs', description_depth: 'Description',
+    };
+    const dimHtml = Object.entries(dims).map(([k, v]) => {
+      const label = dimLabels[k] || k;
+      const dcls = v.passed ? 'gate-pill--pass' : v.score > 0 ? 'gate-pill--warn' : 'gate-pill--fail';
+      return `<span class="gate-pill ${dcls}" title="${esc(v.details)}">${label}</span>`;
+    }).join(' ');
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="quality-score quality-score--${cls}">${pct}%</span>${readyPill}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${dimHtml}</div>`;
+  } catch (err) {
+    body.innerHTML = '<div class="muted-hint">Could not load</div>';
+  }
 }
 
 async function loadQualityStrip(opp_id) {

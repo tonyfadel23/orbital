@@ -78,6 +78,16 @@ class WorkspaceService:
         if isinstance(a, dict):
             if "content" in a:
                 return a
+            # Agents sometimes write {"text": "...", "status": "..."} instead of "content"
+            if "text" in a:
+                return {
+                    "id": a.get("id", f"asm-{index + 1:03d}"),
+                    "content": a["text"],
+                    "status": a.get("status", "untested"),
+                    "importance": a.get("importance", "medium"),
+                    "confidence": a.get("confidence"),
+                    "source": a.get("source"),
+                }
             # Corrupted spread: {0:'T', 1:'h', ...} — reassemble
             if "0" in a:
                 text = "".join(a[str(i)] for i in range(len(a)) if str(i) in a)

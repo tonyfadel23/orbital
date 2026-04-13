@@ -15,6 +15,7 @@ class AgentLauncher:
         self._output: dict[str, deque] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._session_ids: dict[str, str] = {}
+        self._last_output_time: dict[str, float] = {}
 
     def launch(self, opp_id: str, command: str) -> bool:
         if opp_id in self._processes and self._processes[opp_id].poll() is None:
@@ -56,6 +57,32 @@ class AgentLauncher:
             return False
         if proc.poll() is None:
             proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        return True
+
+    def is_stale(self, opp_id: str, threshold_seconds: int = 300) -> bool:
+        """Return True if process is running but hasn't produced output recently."""
+        proc = self._processes.get(opp_id)
+        if proc is None or proc.poll() is not None:
+            return False
+        last = self._last_output_time.get(opp_id)
+        if last is None:
+            return False
+        return (time.time() - last) > threshold_seconds
+
+    def restart(self, opp_id: str) -> bool:
+        """Stop process, clear output buffer. Returns True if process existed."""
+        proc = self._processes.get(opp_id)
+        if proc is None:
+            return False
+        self.stop(opp_id)
+        if opp_id in self._output:
+            self._output[opp_id].clear()
+        self._last_output_time.pop(opp_id, None)
+        self._session_ids.pop(opp_id, None)
         return True
 
     def send_input(self, opp_id: str, text: str) -> bool:
@@ -152,6 +179,7 @@ class AgentLauncher:
             for line in proc.stdout:
                 stripped = line.rstrip("\n")
                 self._output[opp_id].append(stripped)
+                self._last_output_time[opp_id] = time.time()
                 # Extract session_id from stream-json output
                 if opp_id not in self._session_ids:
                     try:

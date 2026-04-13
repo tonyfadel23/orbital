@@ -36,6 +36,27 @@ def get_quality_report(opp_id: str, request: Request):
     }
 
 
+@router.get("/api/workspaces/{opp_id}/quality/framing")
+def get_framing_quality(opp_id: str, request: Request):
+    quality_svc = request.app.state.quality_gate_svc
+    workspace_svc = request.app.state.workspace_svc
+    opp = workspace_svc.get_opportunity(opp_id)
+    if opp is None:
+        raise HTTPException(404, f"Workspace {opp_id} not found")
+
+    report = quality_svc.check_framing_quality(opp_id)
+    return {
+        "opp_id": opp_id,
+        "framing_score": report.overall_score,
+        "ready": report.overall_passed,
+        "timestamp": report.to_dict()["timestamp"],
+        "dimensions": {
+            g.gate: {"score": g.score, "passed": g.passed, "details": g.details}
+            for g in report.gates
+        },
+    }
+
+
 @router.get("/api/workspaces/{opp_id}/quality/gates")
 def get_quality_gates(opp_id: str, request: Request):
     quality_svc = request.app.state.quality_gate_svc

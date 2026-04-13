@@ -1,5 +1,6 @@
 """Tests for AgentLauncher — subprocess management for Claude agents."""
 
+import subprocess
 import time
 from collections import deque
 from pathlib import Path
@@ -379,3 +380,87 @@ class TestAgentLauncher:
         assert len(procs) == 2
         keys = {p["key"] for p in procs}
         assert keys == {"opp-001", "opp-002:data"}
+
+
+class TestLauncherResilience:
+    """Tests for SIGKILL fallback, stale detection, and restart."""
+
+    def test_stop_sends_sigkill_if_terminate_fails(self, tmp_path):
+        """stop() should SIGKILL after terminate if process doesn't exit."""
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        # Process stays alive after terminate (poll returns None), then dies after kill
+        mock_proc.poll.return_value = None
+        mock_proc.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=5)
+        launcher._processes["opp-001"] = mock_proc
+
+        launcher.stop("opp-001")
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+
+    def test_stop_no_sigkill_if_terminate_works(self, tmp_path):
+        """stop() should not SIGKILL if terminate succeeds within timeout."""
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0  # exits cleanly after terminate
+        launcher._processes["opp-001"] = mock_proc
+
+        launcher.stop("opp-001")
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_not_called()
+
+    def test_last_output_time_tracked(self, tmp_path):
+        """_last_output_time is updated when output is read."""
+        launcher = AgentLauncher(tmp_path)
+        launcher.launch("opp-001", "echo hello")
+        time.sleep(0.5)
+        assert "opp-001" in launcher._last_output_time
+        assert launcher._last_output_time["opp-001"] > 0
+        launcher.stop("opp-001")
+
+    def test_is_stale_true_when_no_output(self, tmp_path):
+        """is_stale returns True when process hasn't produced output recently."""
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        launcher._processes["opp-001"] = mock_proc
+        # Set last output time to 10 minutes ago
+        launcher._last_output_time["opp-001"] = time.time() - 600
+
+        assert launcher.is_stale("opp-001", threshold_seconds=300) is True
+
+    def test_is_stale_false_when_recent_output(self, tmp_path):
+        """is_stale returns False when process produced output recently."""
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        launcher._processes["opp-001"] = mock_proc
+        launcher._last_output_time["opp-001"] = time.time()  # just now
+
+        assert launcher.is_stale("opp-001", threshold_seconds=300) is False
+
+    def test_is_stale_false_when_not_running(self, tmp_path):
+        """is_stale returns False for non-running processes."""
+        launcher = AgentLauncher(tmp_path)
+        assert launcher.is_stale("opp-999") is False
+
+    def test_restart_kills_and_clears(self, tmp_path):
+        """restart() stops the process and clears output buffer."""
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0
+        launcher._processes["opp-001"] = mock_proc
+        launcher._output["opp-001"] = deque(["old line 1", "old line 2"])
+        launcher._last_output_time["opp-001"] = time.time() - 600
+
+        result = launcher.restart("opp-001")
+        assert result is True
+        mock_proc.terminate.assert_called_once()
+        assert len(launcher._output["opp-001"]) == 0
+
+    def test_restart_nonexistent(self, tmp_path):
+        """restart() returns False for unknown opp_id."""
+        launcher = AgentLauncher(tmp_path)
+        assert launcher.restart("opp-999") is False

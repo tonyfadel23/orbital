@@ -1,6 +1,7 @@
 """Tests for launch router — parallel Phase 2 and single-agent Phase 0."""
 
 import json
+import time
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -343,3 +344,54 @@ class TestLaunchRouter:
         resp = await client.post("/api/launch/processes/stop", json={"key": "opp-nonexistent"})
         assert resp.status_code == 200
         assert resp.json() == {"stopped": False}
+
+    @pytest.mark.asyncio
+    async def test_restart_endpoint(self, client, app):
+        """POST /api/launch/{opp_id}/restart stops process and clears state."""
+        launcher = app.state.launcher
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0
+        launcher._processes["opp-20260405-120000"] = mock_proc
+        from collections import deque
+        launcher._output["opp-20260405-120000"] = deque(["old output"])
+
+        resp = await client.post("/api/launch/opp-20260405-120000/restart")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["restarted"] is True
+
+    @pytest.mark.asyncio
+    async def test_restart_nonexistent(self, client, app):
+        """POST /api/launch/{opp_id}/restart returns restarted=false for unknown."""
+        resp = await client.post("/api/launch/opp-nonexistent/restart")
+        assert resp.status_code == 200
+        assert resp.json()["restarted"] is False
+
+    @pytest.mark.asyncio
+    async def test_status_includes_stale_field(self, client, app):
+        """GET /api/launch/{opp_id}/status includes stale field."""
+        launcher = app.state.launcher
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # running
+        launcher._processes["opp-20260405-120000"] = mock_proc
+        launcher._last_output_time["opp-20260405-120000"] = time.time() - 600
+
+        resp = await client.get("/api/launch/opp-20260405-120000/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "stale" in data
+        assert data["stale"] is True
+
+    @pytest.mark.asyncio
+    async def test_status_stale_false_when_fresh(self, client, app):
+        """GET /api/launch/{opp_id}/status stale=false when output is recent."""
+        launcher = app.state.launcher
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        launcher._processes["opp-20260405-120000"] = mock_proc
+        launcher._last_output_time["opp-20260405-120000"] = time.time()
+
+        resp = await client.get("/api/launch/opp-20260405-120000/status")
+        data = resp.json()
+        assert data["stale"] is False

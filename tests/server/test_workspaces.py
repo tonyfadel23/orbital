@@ -288,6 +288,44 @@ class TestAssumptionNormalization:
         assert a["status"] == "untested"
         assert a["id"] == "asm-001"
 
+    def test_text_key_dict_normalized(self, tmp_data_dir):
+        """Agents sometimes write {"text": "...", "status": "untested"} — must normalise to content key."""
+        svc = self._make_opp(tmp_data_dir, "opp-text-asm", [
+            {"text": "Users prefer weekly savings summaries", "status": "untested"},
+            {"text": "Push notifications drive re-engagement", "status": "validated"},
+        ])
+        opp = svc.get_opportunity("opp-text-asm")
+        assert len(opp["assumptions"]) == 2
+        a0 = opp["assumptions"][0]
+        assert a0["content"] == "Users prefer weekly savings summaries"
+        assert a0["status"] == "untested"
+        assert a0["importance"] == "medium"
+        assert a0["id"] == "asm-001"
+        a1 = opp["assumptions"][1]
+        assert a1["content"] == "Push notifications drive re-engagement"
+        assert a1["status"] == "validated"
+
+    def test_text_key_with_extra_fields(self, tmp_data_dir):
+        """Text-key dicts with confidence, source, evidence fields should be preserved."""
+        svc = self._make_opp(tmp_data_dir, "opp-text-extra", [
+            {
+                "id": "asm-custom",
+                "text": "Grocery baskets grow with recipe suggestions",
+                "status": "testing",
+                "importance": "critical",
+                "confidence": 0.7,
+                "source": "user-interviews-2026-Q1",
+            },
+        ])
+        opp = svc.get_opportunity("opp-text-extra")
+        a = opp["assumptions"][0]
+        assert a["content"] == "Grocery baskets grow with recipe suggestions"
+        assert a["id"] == "asm-custom"
+        assert a["status"] == "testing"
+        assert a["importance"] == "critical"
+        assert a["confidence"] == 0.7
+        assert a["source"] == "user-interviews-2026-Q1"
+
     def test_no_assumptions_key(self, tmp_data_dir):
         """Missing assumptions key is fine — no normalization needed."""
         ws_dir = tmp_data_dir / "workspaces" / "opp-no-asm"

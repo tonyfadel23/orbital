@@ -170,10 +170,12 @@ def launch_status(opp_id: str, request: Request, lines: int = 100):
         return {
             "running": launcher.is_any_function_running(opp_id),
             "function_outputs": fn_outputs,
+            "stale": launcher.is_stale(opp_id),
         }
     return {
         "running": launcher.is_running(opp_id),
         "output": launcher.get_latest_output(opp_id, lines=min(lines, 200)),
+        "stale": launcher.is_stale(opp_id),
     }
 
 
@@ -181,6 +183,12 @@ def launch_status(opp_id: str, request: Request, lines: int = 100):
 def launch_stop(opp_id: str, request: Request):
     launcher = request.app.state.launcher
     return {"stopped": launcher.stop(opp_id)}
+
+
+@router.post("/{opp_id}/restart")
+def launch_restart(opp_id: str, request: Request):
+    launcher = request.app.state.launcher
+    return {"restarted": launcher.restart(opp_id)}
 
 
 @router.post("/{opp_id}/approve")

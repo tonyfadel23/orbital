@@ -579,3 +579,90 @@ class TestCanTransition:
         assert can is True
         assert blockers == []
         assert warnings == []
+
+
+# --- Framing quality gate tests ---
+
+class TestFramingQuality:
+    """check_framing_quality() scores opportunity framing completeness."""
+
+    def _make_framing_workspace(self, tmp_data_dir, opp_id, **overrides):
+        """Create a minimal opportunity for framing quality tests."""
+        ws_dir = tmp_data_dir / "workspaces" / opp_id
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        opp = {
+            "id": opp_id,
+            "title": overrides.get("title", ""),
+            "type": overrides.get("type", None),
+            "description": overrides.get("description", ""),
+            "assumptions": overrides.get("assumptions", []),
+            "success_signals": overrides.get("success_signals", []),
+            "kill_signals": overrides.get("kill_signals", []),
+            "context_refs": overrides.get("context_refs", []),
+            "status": "aligning",
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp))
+        return _make_svc(tmp_data_dir)
+
+    def test_empty_opportunity_scores_near_zero(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-empty")
+        report = svc.check_framing_quality("opp-frame-empty")
+        assert report.overall_score < 0.1
+        assert report.overall_passed is False
+
+    def test_hmw_title_scores_full(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-hmw",
+            title="HMW reduce first-order drop-off for new users?")
+        report = svc.check_framing_quality("opp-frame-hmw")
+        hmw_gate = next(g for g in report.gates if g.gate == "hmw_title")
+        assert hmw_gate.score == 1.0
+        assert hmw_gate.passed is True
+
+    def test_no_hmw_prefix_scores_zero(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-nohmw",
+            title="Reduce first-order drop-off")
+        report = svc.check_framing_quality("opp-frame-nohmw")
+        hmw_gate = next(g for g in report.gates if g.gate == "hmw_title")
+        assert hmw_gate.score == 0.0
+        assert hmw_gate.passed is False
+
+    def test_fully_complete_passes(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-full",
+            title="HMW make fresh groceries a habitual purchase on tMart?",
+            type="hypothesis",
+            description="Investigate whether recipe-based merchandising can shift grocery from transactional to habitual purchasing behavior among UAE users.",
+            assumptions=[
+                {"id": "asm-001", "content": "Recipe content drives basket size", "status": "untested", "importance": "critical"},
+                {"id": "asm-002", "content": "Users browse before buying", "status": "untested", "importance": "medium"},
+                {"id": "asm-003", "content": "Fresh produce quality is top concern", "status": "untested", "importance": "high"},
+            ],
+            success_signals=["Add-to-cart rate up 15%", "Repeat grocery orders up 20%", "Recipe page engagement > 30s"],
+            kill_signals=["No basket size change", "Recipe pages bounce > 80%", "Support tickets increase"],
+            context_refs=["L1/global", "L2a/groceries"],
+        )
+        report = svc.check_framing_quality("opp-frame-full")
+        assert report.overall_score >= 0.8
+        assert report.overall_passed is True
+
+    def test_partial_scores_mid_range(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-partial",
+            title="HMW improve grocery experience?",
+            type="question",
+            description="Short description",
+            assumptions=[{"id": "asm-001", "content": "One assumption", "status": "untested", "importance": "medium"}],
+            success_signals=["One signal"],
+            kill_signals=[],
+            context_refs=[],
+        )
+        report = svc.check_framing_quality("opp-frame-partial")
+        assert 0.3 < report.overall_score < 0.8
+        assert report.overall_passed is False
+
+    def test_framing_report_has_all_dimensions(self, tmp_data_dir):
+        svc = self._make_framing_workspace(tmp_data_dir, "opp-frame-dims",
+            title="HMW test?", type="hypothesis")
+        report = svc.check_framing_quality("opp-frame-dims")
+        gate_names = {g.gate for g in report.gates}
+        expected = {"hmw_title", "type_set", "assumptions", "success_signals",
+                    "kill_signals", "context_refs", "description_depth"}
+        assert gate_names == expected

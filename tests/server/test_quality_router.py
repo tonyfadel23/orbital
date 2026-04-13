@@ -197,3 +197,51 @@ class TestQualityRouter:
         assert resp.status_code == 200
         data = resp.json()
         assert data["layer_3"]["enabled"] is False
+
+    # --- GET /api/workspaces/{opp_id}/quality/framing ---
+
+    async def test_framing_quality_empty(self, client, tmp_data_dir):
+        """Empty opportunity returns low framing score."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-frame-api"
+        ws_dir.mkdir(parents=True)
+        opp = {"id": "opp-frame-api", "title": "", "status": "aligning", "type": None,
+               "description": "", "assumptions": [], "success_signals": [],
+               "kill_signals": [], "context_refs": []}
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp))
+        resp = await client.get("/api/workspaces/opp-frame-api/quality/framing")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["opp_id"] == "opp-frame-api"
+        assert data["framing_score"] < 0.1
+        assert data["ready"] is False
+        assert "dimensions" in data
+        assert len(data["dimensions"]) == 7
+
+    async def test_framing_quality_complete(self, client, tmp_data_dir):
+        """Fully framed opportunity returns high score and ready=True."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-frame-api2"
+        ws_dir.mkdir(parents=True)
+        opp = {
+            "id": "opp-frame-api2", "status": "aligning",
+            "title": "HMW make fresh groceries habitual on tMart?",
+            "type": "hypothesis",
+            "description": "Investigate whether recipe-based merchandising can shift grocery from transactional to habitual purchasing behavior among UAE users.",
+            "assumptions": [
+                {"id": "asm-001", "content": "Recipe content drives basket size", "status": "untested", "importance": "critical"},
+                {"id": "asm-002", "content": "Users browse before buying", "status": "untested", "importance": "medium"},
+                {"id": "asm-003", "content": "Fresh produce quality is top concern", "status": "untested", "importance": "high"},
+            ],
+            "success_signals": ["ATC +15%", "Repeat +20%", "Engagement >30s"],
+            "kill_signals": ["No basket change", "Bounce >80%", "Support tickets up"],
+            "context_refs": ["L1/global", "L2a/groceries"],
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp))
+        resp = await client.get("/api/workspaces/opp-frame-api2/quality/framing")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["framing_score"] >= 0.8
+        assert data["ready"] is True
+
+    async def test_framing_quality_not_found(self, client):
+        resp = await client.get("/api/workspaces/opp-nonexistent/quality/framing")
+        assert resp.status_code == 404

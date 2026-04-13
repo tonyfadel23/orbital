@@ -34,6 +34,9 @@ class QualityReport:
 
     @property
     def overall_passed(self) -> bool:
+        # Weighted pass override (used by framing quality)
+        if hasattr(self, "_weighted_passed") and self._weighted_passed is not None:
+            return self._weighted_passed
         blocking_gates = [g for g in self.gates if g.blocking]
         if not blocking_gates:
             return True
@@ -41,6 +44,9 @@ class QualityReport:
 
     @property
     def overall_score(self) -> float:
+        # Weighted score override (used by framing quality)
+        if hasattr(self, "_weighted_score") and self._weighted_score is not None:
+            return self._weighted_score
         if not self.gates:
             return 1.0
         return sum(g.score for g in self.gates) / len(self.gates)
@@ -241,6 +247,81 @@ class QualityGateService:
             details += f"; sparse: {', '.join(sparse)}"
 
         return GateResult("finding_density", passed, round(score, 3), min_findings, blocking, details)
+
+    # --- Framing quality ---
+
+    def check_framing_quality(self, opp_id: str) -> QualityReport:
+        """Score opportunity framing completeness across 7 weighted dimensions."""
+        opp = self.workspace_svc.get_opportunity(opp_id)
+        if opp is None:
+            raise ValueError(f"Workspace {opp_id} not found")
+
+        gates = []
+        title = opp.get("title", "") or ""
+        opp_type = opp.get("type") or ""
+        description = opp.get("description", "") or ""
+        assumptions = opp.get("assumptions", []) or []
+        success_signals = opp.get("success_signals", []) or []
+        kill_signals = opp.get("kill_signals", []) or []
+        context_refs = opp.get("context_refs", []) or []
+
+        # hmw_title — title starts with HMW / How might we
+        hmw = 1.0 if title.lower().startswith(("hmw ", "how might we ")) else 0.0
+        gates.append(GateResult("hmw_title", hmw >= 1.0, hmw, 1.0, False,
+                                f"Title: '{title[:60]}'" if title else "No title"))
+
+        # type_set — type is one of the valid investigation types
+        valid_types = {"hypothesis", "problem", "question"}
+        ts = 1.0 if opp_type in valid_types else 0.0
+        gates.append(GateResult("type_set", ts >= 1.0, ts, 1.0, False,
+                                f"Type: {opp_type}" if opp_type else "No type set"))
+
+        # assumptions — min(count/3, 1.0)
+        asm_score = min(len(assumptions) / 3, 1.0) if assumptions else 0.0
+        gates.append(GateResult("assumptions", asm_score >= 1.0, round(asm_score, 3), 1.0, False,
+                                f"{len(assumptions)} assumptions"))
+
+        # success_signals — min(count/3, 1.0)
+        ss_score = min(len(success_signals) / 3, 1.0)
+        gates.append(GateResult("success_signals", ss_score >= 1.0, round(ss_score, 3), 1.0, False,
+                                f"{len(success_signals)} success signals"))
+
+        # kill_signals — min(count/3, 1.0)
+        ks_score = min(len(kill_signals) / 3, 1.0)
+        gates.append(GateResult("kill_signals", ks_score >= 1.0, round(ks_score, 3), 1.0, False,
+                                f"{len(kill_signals)} kill signals"))
+
+        # context_refs — min(count/1, 1.0)
+        cr_score = min(len(context_refs) / 1, 1.0)
+        gates.append(GateResult("context_refs", cr_score >= 1.0, round(cr_score, 3), 1.0, False,
+                                f"{len(context_refs)} context refs"))
+
+        # description_depth — min(len/100, 1.0)
+        dd_score = min(len(description) / 100, 1.0)
+        gates.append(GateResult("description_depth", dd_score >= 1.0, round(dd_score, 3), 1.0, False,
+                                f"{len(description)} chars"))
+
+        overall = self._framing_weighted_score(gates)
+        report = QualityReport(opp_id=opp_id, gates=gates)
+        # Override the simple average with weighted score
+        report._weighted_score = overall
+        report._weighted_passed = overall >= 0.8
+        return report
+
+    @staticmethod
+    def _framing_weighted_score(gates: list[GateResult]) -> float:
+        """Weighted average: hmw_title and assumptions get 2x weight."""
+        weights = {
+            "hmw_title": 2, "type_set": 1, "assumptions": 2,
+            "success_signals": 1, "kill_signals": 1, "context_refs": 1, "description_depth": 1,
+        }
+        total_weight = 0
+        weighted_sum = 0.0
+        for g in gates:
+            w = weights.get(g.gate, 1)
+            weighted_sum += g.score * w
+            total_weight += w
+        return round(weighted_sum / total_weight, 3) if total_weight else 0.0
 
     # --- Orchestration ---
 
