@@ -214,8 +214,9 @@ class TestCliBridge:
         assert "do not use askuserquestion" in cmd.lower()
         # One question per turn, not a dump of everything
         assert "one" in cmd.lower() and "question" in cmd.lower()
-        # Conversational tone
-        assert "conversational" in cmd.lower()
+        # Direct tone with structured exit
+        assert "direct" in cmd.lower()
+        assert "exit checklist" in cmd.lower()
 
     def test_phase0_prompt_has_output_format(self, tmp_project_root, tmp_data_dir):
         """Phase 0 prompt must specify an explicit output structure so the agent

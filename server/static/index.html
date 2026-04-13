@@ -13,7 +13,8 @@
     <span id="logo" onclick="navigate('dashboard')">ORBITAL</span>
     <span id="nav-back" class="d-none" onclick="navigate('dashboard')">&#8592;</span>
     <span id="nav-context" class="d-none"></span>
-    <div class="ws-dropdown" id="nav-ws" style="margin-left:auto;">
+    <span id="nav-settings" onclick="navigate('settings')" title="Settings" style="margin-left:auto;cursor:pointer;font-size:18px;opacity:0.6;transition:opacity 0.15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">&#9881;</span>
+    <div class="ws-dropdown" id="nav-ws" style="margin-left:8px;">
       <div class="live-badge live-badge--clickable" id="ws-status" onclick="toggleWsDropdown()"><span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span></div>
       <div class="ws-dropdown-menu d-none" id="ws-menu"></div>
     </div>
@@ -831,8 +832,8 @@ function updateNav(view, params) {
     back.style.display = 'none';
     ctx.style.display = 'none';
   }
-  // Always show WS badge
-  if (wsBadge) wsBadge.style.display = '';
+  // Only show WS badge on views that use WebSocket
+  if (wsBadge) wsBadge.style.display = hasContext ? '' : 'none';
 }
 
 async function navigate(view, params) {
@@ -2188,12 +2189,28 @@ function openEvidenceModal(preselect) {
   overlay.className = 'evidence-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
-  // Pre-fill query from opportunity context
+  // Pre-fill query from opportunity context — build a well-formatted research prompt
   const opp = state.currentOpp || {};
   const assumptions = (opp.assumptions || []).map(normalizeAssumption);
+  const untested = assumptions.filter(a => !a.status || a.status === 'untested');
+  const title = opp.title || '';
+  const desc = opp.description || '';
+
   let prefill = '';
-  if (opp.title) prefill += opp.title;
-  if (assumptions.length) prefill += '\n\nKey assumptions to investigate:\n' + assumptions.map(a => '- ' + (a.content || a)).join('\n');
+  if (title || desc) {
+    // Build a structured research question
+    const topic = title || desc.slice(0, 120);
+    prefill = `Investigate: ${topic}\n\n`;
+    if (desc && title) prefill += `Context: ${desc.length > 200 ? desc.slice(0, 200) + '...' : desc}\n\n`;
+    if (untested.length) {
+      prefill += `Key assumptions to validate:\n${untested.map((a, i) => `${i + 1}. ${a.content || a}`).join('\n')}\n\n`;
+    }
+    const signals = [...(opp.success_signals || []), ...(opp.kill_signals || [])].slice(0, 4);
+    if (signals.length) {
+      prefill += `Metrics to look for: ${signals.join(', ')}`;
+    }
+    prefill = prefill.trim();
+  }
 
   // Pre-select sources if passed
   const preselected = new Set(preselect ? [preselect] : []);
@@ -2465,22 +2482,37 @@ function stopEvidencePolling() {
   }
 }
 
-function renderFindingWithSources(f) {
+function renderFindingWithSources(f, opts) {
   const text = f.content || f.finding || f.text || '';
   if (!text) return `<li>${esc(JSON.stringify(f))}</li>`;
 
-  // Extract and linkify "(Source: ...)" references
-  const html = esc(text).replace(
-    /\(Source:\s*(.+?)\)/gi,
-    (_, src) => {
-      // If it looks like a URL, make it clickable
-      const urlMatch = src.match(/(https?:\/\/[^\s),]+)/);
-      if (urlMatch) {
-        const url = urlMatch[1];
-        const label = src.replace(url, '').replace(/via\s*/i, '').trim() || url;
-        return `(<a href="${url}" target="_blank" rel="noopener" class="evidence-source-link">${esc(label) || 'Source'} ↗</a>)`;
-      }
-      return `(<span class="evidence-source-ref">${src}</span>)`;
+  // Linkify source references:
+  // 1. "(Source: https://...)" — direct URL
+  // 2. "(#channel-name, Author, Date)" — Slack channel deep link
+  // 3. "(Source: ...)" — plain text reference
+  let html = esc(text);
+
+  // URLs anywhere in the text
+  html = html.replace(/(https?:\/\/[^\s),&lt;]+)/g,
+    url => `<a href="${url}" target="_blank" rel="noopener" class="evidence-source-link">${url.length > 60 ? url.slice(0, 57) + '...' : url} ↗</a>`
+  );
+
+  // Slack channel references: (#channel-name, Author, Date)
+  html = html.replace(
+    /\((#[\w-]+),\s*([^,)]+),\s*([^)]+)\)/g,
+    (_, channel, author, date) => {
+      const ch = channel.slice(1); // remove #
+      return `(<a href="https://talabat.slack.com/channels/${ch}" target="_blank" rel="noopener" class="evidence-source-link">${channel}</a>, <span class="evidence-source-ref">${author.trim()}, ${date.trim()}</span>)`;
+    }
+  );
+
+  // Standalone #channel-name not already linked
+  html = html.replace(
+    /(?<!href="[^"]*)(#(?:[\w][\w-]{2,}))/g,
+    (m) => {
+      if (m.startsWith('#&')) return m; // skip HTML entities
+      const ch = m.slice(1);
+      return `<a href="https://talabat.slack.com/channels/${ch}" target="_blank" rel="noopener" class="evidence-source-link">${m}</a>`;
     }
   );
 
@@ -2558,10 +2590,29 @@ async function openEvidenceDetail(sourceType) {
       ? `<div class="evidence-detail-summary">${renderMarkdown(ev.summary)}</div>`
       : '';
 
-    const findingsHtml = (ev.findings || []).length
-      ? `<h4 style="margin:0 0 8px;font-size:13px;color:var(--text-primary)">Findings</h4>
-         <ol class="evidence-detail-findings">${(ev.findings || []).map(f => renderFindingWithSources(f)).join('')}</ol>`
-      : '';
+    const findings = ev.findings || [];
+    let findingsHtml = '';
+    if (findings.length) {
+      const findingItems = findings.map((f, idx) => {
+        const fStatus = f.approval_status || '';
+        const approveClass = fStatus === 'approved' ? 'evidence-btn-approve--active' : '';
+        const rejectClass = fStatus === 'rejected' ? 'evidence-btn-reject--active' : '';
+        const rendered = renderFindingWithSources(f);
+        return `<li class="evidence-finding-row">
+          <div class="evidence-finding-content">${rendered.replace(/^<li>/, '').replace(/<\/li>$/, '')}</div>
+          <div class="evidence-finding-actions">
+            <button class="evidence-btn-sm evidence-btn-approve ${approveClass}" title="Approve"
+              ${fStatus === 'approved' ? 'disabled' : ''}
+              onclick="setFindingApproval('${state.setupOppId}','${ev.id}',${idx},'approved','${sourceType}')">&#10003;</button>
+            <button class="evidence-btn-sm evidence-btn-reject ${rejectClass}" title="Reject"
+              ${fStatus === 'rejected' ? 'disabled' : ''}
+              onclick="setFindingApproval('${state.setupOppId}','${ev.id}',${idx},'rejected','${sourceType}')">&#10007;</button>
+          </div>
+        </li>`;
+      }).join('');
+      findingsHtml = `<h4 style="margin:0 0 8px;font-size:13px;color:var(--text-primary)">Findings — review each</h4>
+        <ol class="evidence-detail-findings">${findingItems}</ol>`;
+    }
 
     const metaItems = [];
     if (ev.query) metaItems.push(`<strong>Query:</strong> ${esc(ev.query)}`);
@@ -2572,8 +2623,14 @@ async function openEvidenceDetail(sourceType) {
       ? `<div class="evidence-detail-meta">${metaItems.join('<br>')}</div>`
       : '';
 
-    const approveDisabled = ev.approval_status === 'approved' ? 'disabled' : '';
-    const rejectDisabled = ev.approval_status === 'rejected' ? 'disabled' : '';
+    // Show bulk approve/reject as secondary action
+    const reviewedCount = findings.filter(f => f.approval_status).length;
+    const approvedCount = findings.filter(f => f.approval_status === 'approved').length;
+    const progressHtml = findings.length
+      ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:12px">${reviewedCount}/${findings.length} reviewed, ${approvedCount} approved</div>`
+      : '';
+    const allApproveDisabled = ev.approval_status === 'approved' ? 'disabled' : '';
+    const allRejectDisabled = ev.approval_status === 'rejected' ? 'disabled' : '';
 
     const html = `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
@@ -2583,12 +2640,13 @@ async function openEvidenceDetail(sourceType) {
       </div>
       ${summaryHtml}
       ${findingsHtml}
+      ${progressHtml}
       ${metaHtml}
-      <div style="display:flex;gap:8px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-        <button class="evidence-btn-approve" ${approveDisabled}
-          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','approved','${sourceType}')">Approve</button>
-        <button class="evidence-btn-reject" ${rejectDisabled}
-          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','rejected','${sourceType}')">Reject</button>
+      <div style="display:flex;gap:8px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);align-items:center">
+        <button class="evidence-btn-approve" ${allApproveDisabled} style="font-size:12px"
+          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','approved','${sourceType}')">Approve All</button>
+        <button class="evidence-btn-reject" ${allRejectDisabled} style="font-size:12px"
+          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','rejected','${sourceType}')">Reject All</button>
       </div>`;
 
     openSlideOver(`${src.icon} ${src.label}`, html);
@@ -2602,9 +2660,7 @@ async function setEvidenceApproval(oppId, evidenceId, status, sourceType) {
   try {
     await api.patch(`evidence/${oppId}/${evidenceId}`, { approval_status: status });
     toast(`Evidence ${status}`);
-    // Update badge in slide-over
     openEvidenceDetail(sourceType);
-    // Update card badge if visible
     const card = document.getElementById(`evidence-card-${sourceType}`);
     if (card) {
       let badge = card.querySelector('.evidence-approval-badge');
@@ -2616,9 +2672,24 @@ async function setEvidenceApproval(oppId, evidenceId, status, sourceType) {
       badge.className = `evidence-approval-badge evidence-approval-badge--${status}`;
       badge.textContent = status;
     }
+    // Refresh framing quality score
+    if (state.setupOppId) loadFramingQuality(state.setupOppId);
   } catch (err) {
     console.warn('Evidence approval error:', err);
     toast('Failed to update approval: ' + err.message);
+  }
+}
+
+async function setFindingApproval(oppId, evidenceId, findingIndex, status, sourceType) {
+  try {
+    await api.patch(`evidence/${oppId}/${evidenceId}/findings/${findingIndex}`, { approval_status: status });
+    toast(`Finding ${status}`);
+    openEvidenceDetail(sourceType);
+    // Refresh framing quality score
+    if (state.setupOppId) loadFramingQuality(state.setupOppId);
+  } catch (err) {
+    console.warn('Finding approval error:', err);
+    toast('Failed to update finding: ' + err.message);
   }
 }
 
@@ -4540,20 +4611,51 @@ async function runAgentJudge(opp_id) {
 // ════════════════════════════════════════════════════════════
 
 async function renderSettings(el) {
-  let config = null;
-  try { config = await api.get('quality/config'); } catch (e) {}
+  let qg = null;
+  try { qg = await api.get('quality/config'); } catch (e) {}
+  if (!qg || typeof qg !== 'object') qg = {};
 
-  const qg = config?.quality_gates || { enabled: true, blocking_mode: 'warn', layer_1: {}, layer_2: { enabled: true }, layer_3: { enabled: true } };
-  const l1 = qg.layer_1 || {};
+  // Ensure defaults
+  qg.enabled = qg.enabled ?? true;
+  qg.blocking_mode = qg.blocking_mode || 'warn';
+  qg.layer_2 = qg.layer_2 || { enabled: true };
+  qg.layer_3 = qg.layer_3 || { enabled: true };
 
+  // Default gate definitions so all 6 always render
+  const defaultGates = {
+    assumption_coverage: { enabled: true, min_coverage: 1.0, blocking: true },
+    confidence_floor:    { enabled: true, threshold: 0.4, blocking: true },
+    solution_distinctiveness: { enabled: true, max_jaccard: 0.7, blocking: false },
+    evidence_freshness:  { enabled: true, max_age_days: 180, blocking: false },
+    vote_quorum:         { enabled: true, min_pct: 0.8, blocking: true },
+    finding_density:     { enabled: true, min_findings: 3, blocking: true },
+  };
+  const l1 = { ...defaultGates, ...qg.layer_1 };
+  // Merge per-gate so partial overrides don't lose defaults
+  for (const [k, v] of Object.entries(defaultGates)) {
+    l1[k] = { ...v, ...(l1[k] || {}) };
+  }
+
+  const gateLabels = {
+    assumption_coverage: 'Assumption Coverage',
+    confidence_floor: 'Confidence Floor',
+    solution_distinctiveness: 'Solution Distinctiveness',
+    evidence_freshness: 'Evidence Freshness',
+    vote_quorum: 'Vote Quorum',
+    finding_density: 'Finding Density',
+  };
   const gateRows = Object.entries(l1).map(([name, gate]) => {
     const thresholdKey = Object.keys(gate).find(k => !['enabled', 'blocking'].includes(k)) || '';
     const thresholdVal = thresholdKey ? gate[thresholdKey] : '';
+    const label = gateLabels[name] || name.replace(/_/g, ' ');
+    const blockingBadge = gate.blocking
+      ? '<span style="font-size:var(--text-xs);color:var(--accent-orange);margin-left:6px">blocking</span>'
+      : '<span style="font-size:var(--text-xs);color:var(--text-muted);margin-left:6px">warn</span>';
     return `
       <div class="settings-row">
-        <span class="settings-row__label">${esc(name.replace(/_/g, ' '))}</span>
+        <span class="settings-row__label">${esc(label)}${blockingBadge}</span>
         <div class="flex items-center gap-8">
-          ${thresholdKey ? `<input type="text" class="settings-input" data-gate="${name}" data-key="${thresholdKey}" value="${thresholdVal}">` : ''}
+          ${thresholdKey ? `<input type="text" class="settings-input" data-gate="${name}" data-key="${thresholdKey}" value="${thresholdVal}" style="width:70px;text-align:right">` : ''}
           <input type="checkbox" class="settings-toggle" data-gate="${name}" data-field="enabled" ${gate.enabled ? 'checked' : ''}>
         </div>
       </div>`;
