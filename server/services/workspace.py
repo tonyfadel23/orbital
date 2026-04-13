@@ -68,7 +68,7 @@ class WorkspaceService:
         Handles three formats:
         - str: plain text from agent output
         - dict with 'content' key: already structured
-        - dict with numeric keys: corrupted by JS spread on a string
+        - dict with 'text' key: agent variation using 'text' instead of 'content'
         """
         if isinstance(a, str):
             return {"id": f"asm-{index + 1:03d}", "content": a, "status": "untested", "importance": "medium"}
@@ -85,10 +85,6 @@ class WorkspaceService:
                     "confidence": a.get("confidence"),
                     "source": a.get("source"),
                 }
-            # Corrupted spread: {0:'T', 1:'h', ...} — reassemble
-            if "0" in a:
-                text = "".join(a[str(i)] for i in range(len(a)) if str(i) in a)
-                return {"id": f"asm-{index + 1:03d}", "content": text, "status": "untested", "importance": "medium"}
         return {"id": f"asm-{index + 1:03d}", "content": str(a), "status": "untested", "importance": "medium"}
 
     def get_workspace_state(self, opp_id: str) -> dict | None:

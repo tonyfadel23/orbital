@@ -74,7 +74,6 @@ function normalizeAssumption(a, i) {
   if (a && typeof a === 'object') {
     if (a.content) return a;
     if (a.text) return {id: a.id || mkId(), content: a.text, confidence: a.confidence, source: a.source, status: a.status || 'untested', importance: a.importance || 'medium'};
-    if ('0' in a) { let t=''; for(let k=0;k<Object.keys(a).length;k++){if(String(k) in a) t+=a[String(k)]; else break;} return {id: mkId(), content: t, status: 'untested', importance: 'medium'}; }
   }
   return {id: mkId(), content: String(a||''), status: 'untested', importance: 'medium'};
 }

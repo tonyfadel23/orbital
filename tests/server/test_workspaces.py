@@ -265,16 +265,6 @@ class TestAssumptionNormalization:
         assert a["importance"] == "critical"
         assert a["id"] == "asm-X"
 
-    def test_corrupted_spread_assumptions_recovered(self, tmp_data_dir):
-        """Spread-operator-corrupted objects ({0:'T', 1:'h', ...}) get recovered."""
-        corrupted = {str(i): c for i, c in enumerate("Test assumption")}
-        svc = self._make_opp(tmp_data_dir, "opp-spread-asm", [corrupted])
-        opp = svc.get_opportunity("opp-spread-asm")
-        a = opp["assumptions"][0]
-        assert a["content"] == "Test assumption"
-        assert a["status"] == "untested"
-        assert a["id"] == "asm-001"
-
     def test_text_key_dict_normalized(self, tmp_data_dir):
         """Agents sometimes write {"text": "...", "status": "untested"} — must normalise to content key."""
         svc = self._make_opp(tmp_data_dir, "opp-text-asm", [
