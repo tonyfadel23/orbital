@@ -94,6 +94,30 @@ class TestLaunchRouter:
         resp = await client.post("/api/launch/opp-draft/start")
         assert resp.status_code == 400
 
+    @pytest.mark.asyncio
+    async def test_status_returns_latest_output_after_resume(self, client, app):
+        """GET /api/launch/{id}/status returns only post-resume output, not old turns."""
+        launcher = app.state.launcher
+        from collections import deque
+        # Simulate output with a resume separator
+        launcher._output["opp-20260405-120000"] = deque([
+            '{"type":"text","text":"turn 1 response"}',
+            "--- RESUMED ---",
+            '{"type":"text","text":"turn 2 response"}',
+        ])
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0  # finished
+        mock_proc.returncode = 0
+        launcher._processes["opp-20260405-120000"] = mock_proc
+
+        resp = await client.get("/api/launch/opp-20260405-120000/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only contain post-resume output
+        assert len(data["output"]) == 1
+        assert "turn 2" in data["output"][0]
+        assert not any("turn 1" in line for line in data["output"])
+
     # --- /assemble endpoint ---
 
     @pytest.mark.asyncio

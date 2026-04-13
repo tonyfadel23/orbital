@@ -173,7 +173,7 @@ def launch_status(opp_id: str, request: Request, lines: int = 100):
         }
     return {
         "running": launcher.is_running(opp_id),
-        "output": launcher.get_output(opp_id, lines=min(lines, 200)),
+        "output": launcher.get_latest_output(opp_id, lines=min(lines, 200)),
     }
 
 
