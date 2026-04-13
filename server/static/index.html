@@ -74,12 +74,23 @@ function removeThinking(feedId) {
   if (el) el.remove();
 }
 function normalizeAssumption(a, i) {
-  if (typeof a === 'string') return {id:`asm-${String(i+1).padStart(3,'0')}`,content:a,status:'untested',importance:'medium'};
+  const mkId = () => `asm-${String(i+1).padStart(3,'0')}`;
+  if (typeof a === 'string') {
+    // Try parsing Python dict repr strings like "{'text': '...', 'confidence': 'high'}"
+    if (a.startsWith('{') && a.includes("'text'")) {
+      try {
+        const obj = JSON.parse(a.replace(/'/g, '"'));
+        if (obj.text) return {id: mkId(), content: obj.text, confidence: obj.confidence, source: obj.source, status: obj.status || 'untested', importance: obj.importance || 'medium'};
+      } catch {}
+    }
+    return {id: mkId(), content: a, status: 'untested', importance: 'medium'};
+  }
   if (a && typeof a === 'object') {
     if (a.content) return a;
-    if ('0' in a) { let t=''; for(let k=0;k<Object.keys(a).length;k++){if(String(k) in a) t+=a[String(k)]; else break;} return {id:`asm-${String(i+1).padStart(3,'0')}`,content:t,status:'untested',importance:'medium'}; }
+    if (a.text) return {id: a.id || mkId(), content: a.text, confidence: a.confidence, source: a.source, status: a.status || 'untested', importance: a.importance || 'medium'};
+    if ('0' in a) { let t=''; for(let k=0;k<Object.keys(a).length;k++){if(String(k) in a) t+=a[String(k)]; else break;} return {id: mkId(), content: t, status: 'untested', importance: 'medium'}; }
   }
-  return {id:`asm-${String(i+1).padStart(3,'0')}`,content:String(a||''),status:'untested',importance:'medium'};
+  return {id: mkId(), content: String(a||''), status: 'untested', importance: 'medium'};
 }
 
 const TYPE_COLORS = {
@@ -1326,7 +1337,7 @@ function renderAssembleCards(el, opp_id, opp) {
   }
   html += `</div>`;
 
-  // Roster summary
+  // Roster summary + Launch button
   const included = roster.filter(r => !state._excludedAgents.has(rosterFn(r)));
   const totalTracks = included.reduce((sum, r) => sum + (r.investigation_tracks || []).length, 0);
   html += `
@@ -1334,6 +1345,14 @@ function renderAssembleCards(el, opp_id, opp) {
       <div class="roster-summary__count">${included.length} agent${included.length !== 1 ? 's' : ''} ready</div>
       <div class="roster-summary__tracks">${totalTracks} track${totalTracks !== 1 ? 's' : ''}</div>
     </div>`;
+
+  // Show "Launch Orbit" button when roster exists
+  if (roster.length > 0) {
+    html += `
+      <button class="btn-primary" style="width:100%;margin-top:16px;padding:12px;font-size:var(--text-sm);font-weight:600;letter-spacing:0.02em" onclick="handleCommandAction('/orbit')">
+        Launch Orbit &rarr;
+      </button>`;
+  }
 
   el.innerHTML = html;
 }
@@ -1439,10 +1458,10 @@ function renderOrbSidebar(el, opp_id, opp) {
       </button>
     </div>
     <div class="subheading mb-12 lh-14">${esc(opp.title || '')}</div>
-    <div class="quality-strip" id="quality-strip" onclick="switchSidebarTab('quality')"></div>`;
+    <div class="quality-card" id="quality-card" onclick="switchSidebarTab('quality')"></div>`;
 
-  // Load quality strip summary
-  loadQualityStrip(opp_id);
+  // Load quality card summary
+  loadQualityCard(opp_id);
 
   // Fetch full workspace to render sidebar tabs
   api.get(`workspaces/${opp_id}`).then(ws => {
@@ -1512,8 +1531,15 @@ async function transitionToPhase(newPhase, opp_id) {
 }
 
 function connectOrbWS(opp_id) {
+  // Close existing connection if any
+  if (state._setupWs && state._setupWs.readyState <= 1) {
+    try { state._setupWs.close(); } catch {}
+  }
+
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let opened = false;
+  let retries = 0;
+  const MAX_RETRIES = 5;
   let socket;
   try { socket = new WebSocket(`${proto}//${location.host}/ws/workspace/${opp_id}`); }
   catch { return; } // WS not supported
@@ -1524,7 +1550,9 @@ function connectOrbWS(opp_id) {
 
   socket.onopen = () => {
     opened = true;
-    if (badge) badge.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
+    retries = 0;
+    const b = document.getElementById('ws-status');
+    if (b) b.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
   };
 
   socket.onmessage = async (e) => {
@@ -1541,8 +1569,19 @@ function connectOrbWS(opp_id) {
   socket.onclose = () => {
     state._setupWs = null;
     const b = document.getElementById('ws-status');
+
+    // Auto-reconnect if we're still on this workspace
+    if (state.setupOppId === opp_id && retries < MAX_RETRIES) {
+      retries++;
+      const delay = Math.min(1000 * Math.pow(2, retries - 1), 10000);
+      if (b) b.innerHTML = '<span class="status-dot" style="background:var(--color-amber)"></span> reconnecting... <span class="ws-chevron">▾</span>';
+      setTimeout(() => {
+        if (state.setupOppId === opp_id) connectOrbWS(opp_id);
+      }, delay);
+      return;
+    }
+
     if (!b) return;
-    // Never connected → stay offline; was connected → show disconnected
     b.innerHTML = opened
       ? '<span class="status-dot" style="background:var(--color-counter)"></span> disconnected <span class="ws-chevron">▾</span>'
       : '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
@@ -1897,7 +1936,7 @@ function pollSetupAgent(opp_id) {
       if (chatInput) {
         chatInput.disabled = false;
         if (state._setupState === 'waiting') {
-          chatInput.focus();
+          if (!document.querySelector('.evidence-modal-overlay')) chatInput.focus();
           chatInput.placeholder = 'Reply to continue the conversation...';
         } else if (state._setupState === 'running') {
           chatInput.placeholder = 'Agent is thinking...';
@@ -2013,9 +2052,11 @@ function updateSetupFeed(lines) {
 
     // Detect slash commands in agent output and surface action buttons
     if (m.isFullText && m.text) {
-      const CMD_ACTIONS = { '/assemble': '\u2192 Move to /assemble', '/orbit': '\u2192 Start orbit' };
-      for (const [cmd, label] of Object.entries(CMD_ACTIONS)) {
-        const re = new RegExp(cmd.replace('/', '\\/') + '\\b');
+      const CMD_TRIGGERS = [
+        { cmd: '/assemble', label: '\u2192 Move to /assemble', re: /\/assemble\b|ready to assemble|assemble.*(team|when you)/i },
+        { cmd: '/orbit', label: '\u2192 Start orbit', re: /\/orbit\b|ready to orbit|start.*(orbit|investigation)/i },
+      ];
+      for (const { cmd, label, re } of CMD_TRIGGERS) {
         if (re.test(m.text) && !feed.querySelector(`.cmd-action-btn[data-cmd="${cmd}"]`)) {
           const btn = document.createElement('button');
           btn.className = 'cmd-action-btn';
@@ -2035,7 +2076,60 @@ function updateSetupFeed(lines) {
   feed.scrollTop = feed.scrollHeight;
 }
 
-function handleCommandAction(cmd) {
+async function handleCommandAction(cmd) {
+  if (!state.setupOppId) return;
+  const opp_id = state.setupOppId;
+
+  if (cmd === '/assemble') {
+    // Show the command in chat feed
+    appendSetupMessage('you', 'var(--color-data)', '/assemble', false);
+    showThinking('setup-feed');
+
+    try {
+      // Stop current agree-phase agent if still running
+      try { await api.post(`launch/${opp_id}/stop`, {}); } catch {}
+
+      // Launch the assemble subprocess via dedicated endpoint
+      state._setupState = 'running';
+      state._agentStartTime = Date.now();
+      updateActivityIndicator();
+      updateSendButton(true);
+      await api.post(`launch/${opp_id}/assemble`, {});
+      // Immediately transition UI to assemble phase (roster populates later via WS)
+      transitionToPhase('assemble', opp_id);
+      pollSetupAgent(opp_id);
+    } catch (err) {
+      toast('Error launching assemble: ' + err.message);
+      removeThinking('setup-feed');
+    }
+    return;
+  }
+
+  if (cmd === '/orbit') {
+    appendSetupMessage('you', 'var(--color-data)', '/orbit', false);
+    showThinking('setup-feed');
+
+    try {
+      // Stop current assemble-phase agent if still running
+      try { await api.post(`launch/${opp_id}/stop`, {}); } catch {}
+
+      // Launch parallel investigation via /start (detects roster → parallel mode)
+      state._setupState = 'running';
+      state._agentStartTime = Date.now();
+      updateActivityIndicator();
+      updateSendButton(true);
+      await api.post(`launch/${opp_id}/start`, {});
+      // Immediately transition UI to investigate phase (agents start producing data via WS)
+      transitionToPhase('investigate', opp_id);
+      pollSetupAgent(opp_id);
+    } catch (err) {
+      toast('Error launching orbit: ' + err.message);
+      removeThinking('setup-feed');
+    }
+    return;
+  }
+
+  // Default: send as chat message
   const input = document.getElementById('setup-input');
   if (input) { input.value = cmd; sendSetupMessage(); }
 }
@@ -2071,25 +2165,36 @@ function openEvidenceModal(preselect) {
   overlay.className = 'evidence-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
-  let selected = preselect || null;
+  // Pre-fill query from opportunity context
+  const opp = state.currentOpp || {};
+  const assumptions = (opp.assumptions || []).map(normalizeAssumption);
+  let prefill = '';
+  if (opp.title) prefill += opp.title;
+  if (assumptions.length) prefill += '\n\nKey assumptions to investigate:\n' + assumptions.map(a => '- ' + (a.content || a)).join('\n');
+
+  // Pre-select sources if passed
+  const preselected = new Set(preselect ? [preselect] : []);
 
   const sourceGrid = Object.entries(EVIDENCE_SOURCES).map(([key, s]) =>
-    `<button class="evidence-source-option${key === selected ? ' selected' : ''}" data-source="${key}">
+    `<label class="evidence-source-check${preselected.has(key) ? ' checked' : ''}" data-source="${key}">
+      <input type="checkbox" class="evidence-source-cb" data-source="${key}" ${preselected.has(key) ? 'checked' : ''} />
       <span class="source-label">${s.icon} ${s.label}</span>
       <span class="source-desc">${s.desc}</span>
-    </button>`
+    </label>`
   ).join('');
 
   overlay.innerHTML = `
     <div class="evidence-modal">
       <div class="evidence-modal-header">
         <h3>Gather Evidence</h3>
-        <p>Launch a focused agent to collect evidence for this orb</p>
+        <p>Select sources and describe what to look for</p>
       </div>
-      <div class="evidence-modal-body">
+      <div class="evidence-modal-body" id="evidence-modal-body">
+        <label class="evidence-query-label" for="evidence-query-input">What should the agent look for?</label>
+        <textarea class="evidence-query-input evidence-query-textarea" placeholder="Describe what evidence you need..."
+               id="evidence-query-input">${esc(prefill)}</textarea>
+        <label class="evidence-query-label" style="margin-top:var(--space-5)">Sources</label>
         <div class="evidence-source-grid">${sourceGrid}</div>
-        <input class="evidence-query-input" placeholder="What are you looking for? e.g. NPS scores for tmart users"
-               id="evidence-query-input" />
       </div>
       <div class="evidence-modal-footer">
         <button class="evidence-btn-cancel" onclick="this.closest('.evidence-modal-overlay').remove()">Cancel</button>
@@ -2098,12 +2203,10 @@ function openEvidenceModal(preselect) {
     </div>`;
   document.body.appendChild(overlay);
 
-  // Source selection
-  overlay.querySelectorAll('.evidence-source-option').forEach(opt => {
-    opt.onclick = () => {
-      overlay.querySelectorAll('.evidence-source-option').forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
-      selected = opt.dataset.source;
+  // Checkbox toggle styling
+  overlay.querySelectorAll('.evidence-source-cb').forEach(cb => {
+    cb.onchange = () => {
+      cb.closest('.evidence-source-check').classList.toggle('checked', cb.checked);
       updateGatherBtn();
     };
   });
@@ -2111,30 +2214,34 @@ function openEvidenceModal(preselect) {
   const queryInput = overlay.querySelector('#evidence-query-input');
   const gatherBtn = overlay.querySelector('#evidence-gather-btn');
 
+  function getSelectedSources() {
+    return [...overlay.querySelectorAll('.evidence-source-cb:checked')].map(cb => cb.dataset.source);
+  }
+
   function updateGatherBtn() {
-    gatherBtn.disabled = !selected || !queryInput.value.trim();
+    gatherBtn.disabled = getSelectedSources().length === 0 || !queryInput.value.trim();
   }
   queryInput.addEventListener('input', updateGatherBtn);
-  queryInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !gatherBtn.disabled) launchGather();
-  });
+  updateGatherBtn(); // initial state (prefill may enable it)
+
   setTimeout(() => queryInput.focus(), 100);
 
   async function launchGather() {
-    if (!selected || !queryInput.value.trim()) return;
+    const sources = getSelectedSources();
+    if (!sources.length || !queryInput.value.trim()) return;
     const query = queryInput.value.trim();
-    const sourceType = selected;
     gatherBtn.disabled = true;
-    gatherBtn.textContent = 'Launching...';
+    gatherBtn.textContent = 'Gathering...';
 
     try {
-      await api.post(`evidence/${state.setupOppId}/gather`, {
-        source_type: sourceType,
-        query: query,
-      });
-      overlay.remove();
-      addEvidenceCard(sourceType, query);
-      startEvidencePolling();
+      // Launch gather for all selected sources
+      const promises = sources.map(src =>
+        api.post(`evidence/${state.setupOppId}/gather`, { source_type: src, query })
+      );
+      await Promise.allSettled(promises);
+
+      // Switch modal to review mode — poll for results
+      showEvidenceReview(overlay, sources, query);
     } catch (err) {
       gatherBtn.textContent = 'Failed — retry';
       gatherBtn.disabled = false;
@@ -2142,6 +2249,104 @@ function openEvidenceModal(preselect) {
     }
   }
   gatherBtn.onclick = launchGather;
+}
+
+function showEvidenceReview(overlay, sources, query) {
+  const body = overlay.querySelector('#evidence-modal-body');
+  const footer = overlay.querySelector('.evidence-modal-footer');
+  if (!body || !footer) return;
+
+  // Replace body with review loading state
+  body.innerHTML = `
+    <div class="evidence-review">
+      <div class="evidence-review__status">
+        <span class="evidence-card-status gathering">Gathering from ${sources.length} source${sources.length > 1 ? 's' : ''}...</span>
+      </div>
+      <div class="evidence-review__results" id="evidence-review-results"></div>
+    </div>`;
+
+  footer.innerHTML = `
+    <button class="evidence-btn-cancel" onclick="this.closest('.evidence-modal-overlay').remove()">Cancel</button>
+    <button class="evidence-btn-gather" id="evidence-accept-btn" disabled>Accept Selected</button>`;
+
+  const resultsEl = body.querySelector('#evidence-review-results');
+  const acceptBtn = footer.querySelector('#evidence-accept-btn');
+
+  // Poll for results
+  let pollCount = 0;
+  const maxPolls = 40; // ~2 min at 3s intervals
+  const pollInterval = setInterval(async () => {
+    pollCount++;
+    try {
+      const data = await api.get(`evidence/${state.setupOppId}/status`);
+      if (!data) return;
+
+      // Render results as they come in
+      let hasResults = false;
+      for (const src of sources) {
+        const lines = (data.evidence_outputs || {})[src] || [];
+        if (!lines.length) continue;
+        hasResults = true;
+        let cardEl = resultsEl.querySelector(`[data-review-source="${src}"]`);
+        if (!cardEl) {
+          cardEl = document.createElement('div');
+          cardEl.className = 'evidence-review-card';
+          cardEl.dataset.reviewSource = src;
+          resultsEl.appendChild(cardEl);
+        }
+        const srcMeta = EVIDENCE_SOURCES[src] || { label: src, icon: '🔍' };
+        const displayLines = lines
+          .map(l => { try { const j = JSON.parse(l); return j.content || j.result || ''; } catch { return l; } })
+          .filter(Boolean);
+        cardEl.innerHTML = `
+          <div class="evidence-review-card__header">
+            <label class="evidence-review-card__check">
+              <input type="checkbox" class="evidence-review-cb" data-source="${src}" checked />
+              <span>${srcMeta.icon} ${esc(srcMeta.label)}</span>
+            </label>
+            <span class="evidence-card-status ${data.running ? 'gathering' : 'completed'}">${data.running ? 'Gathering...' : 'Done'}</span>
+          </div>
+          <div class="evidence-review-card__body">
+            ${displayLines.map(l => `<div class="evidence-review-line">${esc(l)}</div>`).join('')}
+          </div>`;
+      }
+
+      // Update accept button
+      if (hasResults) {
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = `Accept Selected`;
+      }
+
+      // Stop polling when done
+      if (!data.running || pollCount >= maxPolls) {
+        clearInterval(pollInterval);
+        const statusEl = body.querySelector('.evidence-review__status');
+        if (statusEl) {
+          if (data.running) {
+            statusEl.innerHTML = `<span class="evidence-card-status failed">Timed out — review what was collected</span>`;
+          } else {
+            statusEl.innerHTML = `<span class="evidence-card-status completed">Collection complete — review before accepting</span>`;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Evidence review poll error:', err);
+    }
+  }, 3000);
+
+  // Accept handler
+  acceptBtn.onclick = () => {
+    clearInterval(pollInterval);
+    const accepted = [...resultsEl.querySelectorAll('.evidence-review-cb:checked')].map(cb => cb.dataset.source);
+    overlay.remove();
+
+    // Add evidence cards for accepted sources
+    for (const src of accepted) {
+      addEvidenceCard(src, query);
+    }
+    startEvidencePolling();
+    toast(`Accepted evidence from ${accepted.length} source${accepted.length > 1 ? 's' : ''}`);
+  };
 }
 
 function addEvidenceCard(sourceType, query) {
@@ -2213,8 +2418,9 @@ async function pollEvidenceStatus() {
         el.className = 'evidence-card-status completed';
         el.textContent = 'Done';
       });
-      // Try to load evidence files
-      loadEvidenceFindings();
+      // Load evidence findings, then auto-continue the agent
+      await loadEvidenceFindings();
+      autoResumeAfterEvidence();
     }
   } catch (err) {
     console.warn('Evidence poll error:', err);
@@ -2226,6 +2432,35 @@ function stopEvidencePolling() {
     clearInterval(state._evidencePolling);
     state._evidencePolling = null;
   }
+}
+
+function renderFindingWithSources(f) {
+  const text = f.content || f.finding || f.text || '';
+  if (!text) return `<li>${esc(JSON.stringify(f))}</li>`;
+
+  // Extract and linkify "(Source: ...)" references
+  const html = esc(text).replace(
+    /\(Source:\s*(.+?)\)/gi,
+    (_, src) => {
+      // If it looks like a URL, make it clickable
+      const urlMatch = src.match(/(https?:\/\/[^\s),]+)/);
+      if (urlMatch) {
+        const url = urlMatch[1];
+        const label = src.replace(url, '').replace(/via\s*/i, '').trim() || url;
+        return `(<a href="${url}" target="_blank" rel="noopener" class="evidence-source-link">${esc(label) || 'Source'} ↗</a>)`;
+      }
+      return `(<span class="evidence-source-ref">${src}</span>)`;
+    }
+  );
+
+  // Build metric badge if present
+  let badge = '';
+  if (f.metric) {
+    const val = f.value != null ? ` ${f.value}` : '';
+    const trend = f.trend ? ` ${f.trend}` : '';
+    badge = `<span class="evidence-metric-badge">${esc(f.metric)}${esc(val)}${esc(trend)}</span> `;
+  }
+  return `<li>${badge}${html}</li>`;
 }
 
 async function loadEvidenceFindings() {
@@ -2255,11 +2490,12 @@ async function loadEvidenceFindings() {
       const outputEl = card.querySelector('.evidence-card-output');
       if (outputEl && ev.status === 'completed') {
         outputEl.className = 'evidence-card-findings';
-        const summary = ev.summary || '';
-        const findings = (ev.findings || []).slice(0, 3).map(f =>
-          `\u2022 ${f.finding || f.text || JSON.stringify(f)}`
-        ).join('\n');
-        outputEl.innerHTML = renderMarkdown(summary + (findings ? '\n' + findings : ''));
+        const summaryHtml = ev.summary ? `<p class="evidence-summary">${esc(ev.summary)}</p>` : '';
+        const sourceHtml = ev.source_detail ? `<p class="evidence-source-detail">Source: <strong>${esc(ev.source_detail)}</strong></p>` : '';
+        const findingsHtml = (ev.findings || []).slice(0, 5)
+          .map(f => renderFindingWithSources(f)).join('');
+        outputEl.innerHTML = summaryHtml + sourceHtml +
+          (findingsHtml ? `<ul class="evidence-findings-list">${findingsHtml}</ul>` : '');
       } else if (outputEl && ev.status === 'failed') {
         const statusEl = card.querySelector('.evidence-card-status');
         if (statusEl) { statusEl.className = 'evidence-card-status failed'; statusEl.textContent = 'Failed'; }
@@ -2268,6 +2504,29 @@ async function loadEvidenceFindings() {
   } catch (err) {
     console.warn('Evidence findings load error:', err);
   }
+}
+
+function autoResumeAfterEvidence() {
+  if (!state.setupOppId) return;
+  // Only auto-resume if the agree agent is waiting for input
+  if (state._setupState !== 'waiting') return;
+  const msg = 'Evidence gathered. Please review the evidence files and continue refining the opportunity.';
+  const feed = document.getElementById('setup-feed');
+  if (feed) {
+    const div = document.createElement('div');
+    div.className = 'ai-chat-msg';
+    div.innerHTML = `<span class="ai-chat-label">system</span><span class="ai-chat-text" style="color:var(--text-muted);font-style:italic">Auto-continuing with gathered evidence...</span>`;
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+  api.post(`launch/${state.setupOppId}/send`, { message: msg }).catch(err => {
+    console.warn('Auto-resume after evidence failed:', err);
+  });
+  state._setupState = 'running';
+  state._setupSentAt = Date.now();
+  state._agentStartTime = Date.now();
+  updateSendButton(true);
+  updateActivityIndicator();
 }
 
 function showSetupApproveButton() {
@@ -2329,8 +2588,17 @@ function renderPreviewCards(opp, catalog, loadedContext) {
     return `<div class="opp-signals">
       <div class="opp-signals-title">${title} (${items.length})</div>
       ${items.map(s => {
-        const text = typeof s === 'string' ? s : (s.content || String(s));
-        return `<div class="opp-signal-item"><span class="opp-signal-dot" style="background:${dotColor}"></span><span>${esc(text)}</span></div>`;
+        const text = typeof s === 'string' ? s : (s.content || s.text || s.signal || '');
+        if (!text) return '';
+        const conf = s.confidence;
+        const source = s.source;
+        let meta = '';
+        if (conf || source) {
+          const confBar = conf ? `<span class="signal-conf signal-conf--${conf}">${conf}</span>` : '';
+          const srcTag = source ? `<span class="signal-source">${esc(source)}</span>` : '';
+          meta = `<div class="signal-meta">${confBar}${srcTag}</div>`;
+        }
+        return `<div class="opp-signal-item"><span class="opp-signal-dot" style="background:${dotColor}"></span><div class="signal-content"><span>${esc(text)}</span>${meta}</div></div>`;
       }).join('')}
     </div>`;
   }
@@ -3623,9 +3891,26 @@ function connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws) {
 
   socket.onerror = () => {};
 
+  let liveRetries = 0;
   socket.onclose = () => {
-    if (!badge) return;
-    badge.innerHTML = opened
+    const b = document.getElementById('ws-status');
+
+    // Auto-reconnect if still on this workspace
+    if (state.setupOppId === opp_id && state._wsContext && liveRetries < 5) {
+      liveRetries++;
+      const delay = Math.min(1000 * Math.pow(2, liveRetries - 1), 10000);
+      if (b) b.innerHTML = '<span class="status-dot" style="background:var(--color-amber)"></span> reconnecting... <span class="ws-chevron">▾</span>';
+      setTimeout(() => {
+        if (state.setupOppId === opp_id && state._wsContext) {
+          const ctx = state._wsContext;
+          connectLiveWebSocket(ctx.opp_id, ctx.sim, ctx.nodeMap, ctx.renderer, ctx.ws);
+        }
+      }, delay);
+      return;
+    }
+
+    if (!b) return;
+    b.innerHTML = opened
       ? '<span class="status-dot" style="background:var(--color-counter)"></span> disconnected <span class="ws-chevron">▾</span>'
       : '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
   };
@@ -3882,12 +4167,54 @@ async function loadQualityStrip(opp_id) {
     const scoreClass = qualityScoreClass(l1.overall_score);
     const passCount = l1.gates.filter(g => g.passed).length;
     const totalCount = l1.gates.length;
+    const failedGates = l1.gates.filter(g => !g.passed);
+    const failDetail = failedGates.length
+      ? `<span class="quality-fail-detail">${failedGates.map(g => esc(g.gate_name.replace(/_/g, ' '))).join(', ')}</span>`
+      : '';
     strip.innerHTML = `
       <span class="quality-score quality-score--${scoreClass}">${Math.round(l1.overall_score * 100)}%</span>
       ${qualityPill(l1.overall_passed)}
-      <span class="text-2xs font-mono text-muted">${passCount}/${totalCount} gates</span>`;
+      <span class="text-2xs font-mono text-muted">${passCount}/${totalCount} gates</span>
+      ${failDetail}`;
   } catch (e) {
     strip.innerHTML = '';
+  }
+}
+
+async function loadQualityCard(opp_id) {
+  const card = document.getElementById('quality-card');
+  if (!card) return;
+  try {
+    const data = await api.get(`workspaces/${opp_id}/quality`);
+    if (!data || !data.layer_1) {
+      card.innerHTML = `<div class="quality-card__empty">Quality gates will appear once agents report findings.</div>`;
+      return;
+    }
+    const l1 = data.layer_1;
+    const scoreClass = qualityScoreClass(l1.overall_score);
+    const passCount = l1.gates.filter(g => g.passed).length;
+    const totalCount = l1.gates.length;
+
+    let gatesHtml = l1.gates.map(g => {
+      const cls = g.passed ? 'quality-gate-dot--pass' : (g.blocking ? 'quality-gate-dot--fail' : 'quality-gate-dot--warn');
+      return `<div class="quality-gate-row ${cls}">
+        <span class="quality-gate-row__dot"></span>
+        <span class="quality-gate-row__name">${esc(g.gate_name.replace(/_/g, ' '))}</span>
+        <span class="quality-gate-row__detail">${esc(g.detail || '')}</span>
+        ${qualityPill(g.passed)}
+      </div>`;
+    }).join('');
+
+    card.innerHTML = `
+      <div class="quality-card__header">
+        <span class="quality-card__label">Quality</span>
+        <span class="quality-score quality-score--${scoreClass}" style="font-size:var(--text-lg)">${Math.round(l1.overall_score * 100)}%</span>
+        ${qualityPill(l1.overall_passed)}
+        <span class="text-2xs font-mono text-muted" style="margin-left:auto">${passCount}/${totalCount} gates</span>
+      </div>
+      <div class="quality-card__gates">${gatesHtml}</div>`;
+  } catch (e) {
+    card.innerHTML = '';
   }
 }
 

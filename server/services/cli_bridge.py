@@ -197,7 +197,8 @@ class CliBridge:
             f"--append-system-prompt {shlex.quote(system_append)} "
             f'--disallowedTools "EnterPlanMode,AskUserQuestion,ExitPlanMode" '
             f"--permission-mode acceptEdits "
-            f"--output-format stream-json --verbose"
+            f"--output-format stream-json --verbose "
+            f"< /dev/null"
         )
 
     def generate_function_commands(self, opp_id: str) -> dict[str, str]:
@@ -285,7 +286,8 @@ class CliBridge:
                 f"claude -p {shlex.quote(prompt)} "
                 f"--append-system-prompt {shlex.quote(system_append)} "
                 f"--permission-mode acceptEdits "
-                f"--output-format stream-json --verbose"
+                f"--output-format stream-json --verbose "
+                f"< /dev/null"
             )
 
         return commands
@@ -340,7 +342,8 @@ class CliBridge:
                 f"claude -p {shlex.quote(prompt)} "
                 f"--append-system-prompt {shlex.quote(system_append)} "
                 f"--permission-mode acceptEdits "
-                f"--output-format stream-json --verbose"
+                f"--output-format stream-json --verbose "
+                f"< /dev/null"
             )
 
         return commands
@@ -384,7 +387,8 @@ class CliBridge:
             f"claude -p {shlex.quote(prompt)} "
             f"--append-system-prompt {shlex.quote(system_append)} "
             f"--permission-mode acceptEdits "
-            f"--output-format stream-json --verbose"
+            f"--output-format stream-json --verbose "
+            f"< /dev/null"
         )
 
     EVIDENCE_SOURCE_TYPES = (
@@ -438,7 +442,8 @@ class CliBridge:
             f"--append-system-prompt {shlex.quote(system_append)} "
             f'--disallowedTools "EnterPlanMode,AskUserQuestion,ExitPlanMode" '
             f"--permission-mode acceptEdits "
-            f"--output-format stream-json --verbose"
+            f"--output-format stream-json --verbose "
+            f"< /dev/null"
         )
 
     def generate_judge_command(self, opp_id: str) -> str:
@@ -494,7 +499,8 @@ class CliBridge:
             f"--append-system-prompt {shlex.quote(system_append)} "
             f'--disallowedTools "EnterPlanMode,AskUserQuestion,ExitPlanMode" '
             f"--permission-mode acceptEdits "
-            f"--output-format stream-json --verbose"
+            f"--output-format stream-json --verbose "
+            f"< /dev/null"
         )
 
     def generate_resume_command(self, message: str, session_id: str | None = None) -> str:

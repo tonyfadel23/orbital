@@ -37,7 +37,7 @@ class TestContextService:
         assert ctx is not None
         assert ctx["id"] == "L2a-gr"
         assert ctx["type"] == "business_line"
-        assert ctx["name"] == "growth & revenue"
+        assert ctx["name"] == "grocery & retail"
         assert "product_overview" in ctx["content"]
         assert ctx["sufficiency"]["status"] == "gaps_identified"
 

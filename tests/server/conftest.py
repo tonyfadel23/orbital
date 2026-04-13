@@ -61,7 +61,7 @@ def tmp_data_dir(tmp_path):
         ("L1", "global", {"id": "L1-global", "type": "global", "name": "Global", "content": {}, "sufficiency": {"status": "sufficient", "gaps": []}, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}),
         ("L2a", "groceries", {"id": "L2a-groceries", "type": "business_line", "name": "Groceries", "content": {}, "sufficiency": {"status": "sufficient", "gaps": []}, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}),
         ("L2b", "ae", {"id": "L2b-ae", "type": "market", "name": "UAE", "content": {}, "sufficiency": {"status": "sufficient", "gaps": []}, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}),
-        ("L2a", "gr", {"id": "L2a-gr", "type": "business_line", "name": "growth & revenue", "content": {"product_overview": "Commercial levers: promotions, pricing strategy, and top-of-funnel growth constructs."}, "sufficiency": {"status": "gaps_identified", "gaps": [{"field": "goals", "severity": "important", "description": "No quantitative targets — unit economics all TBD."}]}, "created_at": "2026-04-12T00:00:00Z", "updated_at": "2026-04-12T00:00:00Z"}),
+        ("L2a", "gr", {"id": "L2a-gr", "type": "business_line", "name": "grocery & retail", "content": {"product_overview": "Commercial levers: promotions, pricing strategy, and top-of-funnel growth constructs."}, "sufficiency": {"status": "gaps_identified", "gaps": [{"field": "goals", "severity": "important", "description": "No quantitative targets — unit economics all TBD."}]}, "created_at": "2026-04-12T00:00:00Z", "updated_at": "2026-04-12T00:00:00Z"}),
     ]:
         layer_dir = data_dir / "context" / layer
         layer_dir.mkdir(parents=True, exist_ok=True)
