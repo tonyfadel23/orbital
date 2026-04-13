@@ -1047,6 +1047,22 @@ async function renderOrb(el, params) {
   await renderLeftPanel(phase, opp_id, opp);
   renderRightPanel(phase, opp_id, opp);
 
+  // Restore chat history from prior turns and start polling if running
+  if (opp_id && (phase === 'agree' || phase === 'assemble')) {
+    try {
+      const s = await api.get(`launch/${opp_id}/status?full=true`);
+      if (s.output?.length) {
+        // Render full conversation history
+        updateSetupFeed(s.output);
+      }
+      if (s.running) {
+        // Agent is active — poll for new output (full=true stream, dedup via _setupFeedLen)
+        state._setupState = 'running';
+        pollSetupAgent(opp_id);
+      }
+    } catch (err) { console.warn('Failed to restore chat history:', err); }
+  }
+
   if (opp_id && phase !== 'investigate') {
     // In investigate phase, renderGraphPanel connects its own WebSocket
     connectOrbWS(opp_id);
@@ -1300,7 +1316,8 @@ function renderAssembleCards(el, opp_id, opp) {
       </div>
     </div>`;
 
-  // Agent cards (2x2 grid)
+  // Agent cards in setup-card
+  html += `<div class="setup-card"><div class="setup-card-title">Investigation Team</div><div class="setup-card-body">`;
   html += `<div class="agent-card-grid">`;
   for (const entry of roster) {
     const fn = rosterFn(entry);
@@ -1327,13 +1344,39 @@ function renderAssembleCards(el, opp_id, opp) {
   }
   html += `</div>`;
 
+  // Available but unselected agents
+  const rosterFns = new Set(roster.map(r => rosterFn(r)));
+  const availableAgents = state._availableAgents || {};
+  const unselected = Object.entries(availableAgents).filter(([key]) => !rosterFns.has(key));
+  if (unselected.length > 0) {
+    html += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">`;
+    html += `<div style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Available</div>`;
+    html += `<div class="agent-card-grid">`;
+    for (const [key, agent] of unselected) {
+      const color = agentColor(key);
+      html += `
+        <div class="agent-card" style="opacity:0.4" data-fn="${esc(key)}">
+          <div class="agent-card__accent" style="background:${color}"></div>
+          <div class="agent-card__header">
+            <div class="agent-card__icon" style="background:${color}">${agentIcon(key, color)}</div>
+            <div class="agent-card__info">
+              <div class="agent-card__title" style="color:var(--text-muted)">${esc(agent.display_name || humanizeFunction(key))}</div>
+              <div class="agent-card__track-count" style="color:var(--text-muted)">${esc(agent.role || 'Not assigned')}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+    html += `</div></div>`;
+  }
+
   // Roster summary + Launch button
   const included = roster.filter(r => !state._excludedAgents.has(rosterFn(r)));
   const totalTracks = included.reduce((sum, r) => sum + (r.investigation_tracks || []).length, 0);
+  const trackLabel = totalTracks > 0 ? `${totalTracks} track${totalTracks !== 1 ? 's' : ''}` : 'Tracks pending';
   html += `
     <div class="roster-summary" style="margin-top:8px">
       <div class="roster-summary__count">${included.length} agent${included.length !== 1 ? 's' : ''} ready</div>
-      <div class="roster-summary__tracks">${totalTracks} track${totalTracks !== 1 ? 's' : ''}</div>
+      <div class="roster-summary__tracks">${trackLabel}</div>
     </div>`;
 
   // Show "Launch Orbit" button when roster exists
@@ -1343,6 +1386,8 @@ function renderAssembleCards(el, opp_id, opp) {
         Launch Orbit &rarr;
       </button>`;
   }
+
+  html += `</div></div>`; // close setup-card-body + setup-card
 
   el.innerHTML = html;
 }
@@ -1601,6 +1646,11 @@ async function updateOrbPreview(opp_id) {
       } catch (err) { console.warn('Failed to load catalog tools:', err); state._setupCatalog = []; }
     }
 
+    // Fetch available agents catalog once
+    if (!state._availableAgents) {
+      try { state._availableAgents = await api.get('catalog/agents'); } catch {}
+    }
+
     // Re-render right panel with updated data
     renderRightPanel(state.orbPhase, opp_id, opp);
   } catch (err) {
@@ -1706,8 +1756,6 @@ async function sendSetupMessage(fromBtn) {
   if (!state.setupOppId) return;
   try {
     state._setupState = 'running';
-    state._setupOutputLen = 0;  // Reset so poll detects new post-resume output
-    state._setupFeedLen = 0;
     state._agentDuration = 0;
     state._agentStartTime = Date.now();
     updateActivityIndicator();
@@ -1869,6 +1917,21 @@ async function restartAgent() {
   } catch (err) { console.error('Restart failed:', err); }
 }
 
+async function resumeAfterError() {
+  const opp_id = state.setupOppId || state.currentOpp?.id;
+  if (!opp_id) return;
+  try {
+    state._setupState = 'running';
+    state._setupOutputLen = 0;
+    state._setupFeedLen = 0;
+    state._setupSentAt = Date.now();
+    await api.post(`launch/${opp_id}/send`, { message: 'Continue from where you left off.' });
+    if (state.view === 'orb') { pollAgentStatus(); }
+    else { pollSetupAgent(opp_id); }
+    updateActivityIndicator();
+  } catch (err) { console.error('Resume failed:', err); }
+}
+
 function updateSendButton(running) {
   const btnId = state.view === 'orb' ? 'chat-send-btn' : 'setup-send-btn';
   const btn = document.getElementById(btnId);
@@ -1906,8 +1969,11 @@ function appendSetupMessage(label, color, text, isTool) {
 
 function pollSetupAgent(opp_id) {
   if (state._setupPoll) clearInterval(state._setupPoll);
-  state._setupOutputLen = 0;
-  state._setupFeedLen = 0;
+  // Don't reset feed/output lengths if history was already rendered (both use full=true stream)
+  if (!state._setupFeedLen) {
+    state._setupOutputLen = 0;
+    state._setupFeedLen = 0;
+  }
   state._agentStartTime = Date.now();
   state._agentDuration = 0;
   state._agentCost = 0;
@@ -1919,7 +1985,7 @@ function pollSetupAgent(opp_id) {
 
   async function check() {
     try {
-      const s = await api.get(`launch/${opp_id}/status`);
+      const s = await api.get(`launch/${opp_id}/status?full=true`);
       if (!document.getElementById('setup-feed')) { clearInterval(state._setupPoll); return; }
 
       if (s.output?.length) {
@@ -1944,7 +2010,7 @@ function pollSetupAgent(opp_id) {
         if (feed) {
           const div = document.createElement('div');
           div.className = 'ai-chat-msg';
-          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly. Send another message to resume.</span>';
+          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly.</span> <a href="#" class="activity-restart" onclick="resumeAfterError();return false">Resume</a>';
           feed.appendChild(div);
           feed.scrollTop = feed.scrollHeight;
         }
@@ -2124,6 +2190,8 @@ async function handleCommandAction(cmd) {
       updateActivityIndicator();
       updateSendButton(true);
       await api.post(`launch/${opp_id}/assemble`, {});
+      // Fetch available agents catalog for showing unselected agents
+      try { state._availableAgents = await api.get('catalog/agents'); } catch {}
       // Immediately transition UI to assemble phase (roster populates later via WS)
       transitionToPhase('assemble', opp_id);
       pollSetupAgent(opp_id);
@@ -3775,7 +3843,7 @@ function pollAgentStatus(opp_id) {
         if (feed) {
           const div = document.createElement('div');
           div.className = 'ai-chat-msg';
-          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly. Send another message to resume.</span>';
+          div.innerHTML = '<span class="ai-chat-label text-counter">error</span><span class="ai-chat-text">Agent stopped unexpectedly.</span> <a href="#" class="activity-restart" onclick="resumeAfterError();return false">Resume</a>';
           feed.appendChild(div);
           feed.scrollTop = feed.scrollHeight;
         }
