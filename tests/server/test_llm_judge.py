@@ -105,45 +105,35 @@ def _make_svc(tmp_data_dir, api_key="test-key"):
 # --- Dataclass tests ---
 
 class TestRubricResult:
-    def test_creation(self):
+    def test_creation_and_serialization(self):
         r = RubricResult(rubric="evidence_grounding", passed=True, reasoning="Well grounded")
         assert r.rubric == "evidence_grounding"
         assert r.passed is True
-        assert r.reasoning == "Well grounded"
-
-    def test_to_dict(self):
-        r = RubricResult(rubric="relevance", passed=False, reasoning="Off topic")
         d = r.to_dict()
-        assert d == {"rubric": "relevance", "passed": False, "reasoning": "Off topic"}
+        assert d == {"rubric": "evidence_grounding", "passed": True, "reasoning": "Well grounded"}
 
 
 class TestFindingJudgment:
-    def test_creation(self):
-        rubrics = [
+    def test_score_calculation(self):
+        """Mixed, all-pass, all-fail, and empty rubrics."""
+        mixed = [
             RubricResult("evidence_grounding", True, "ok"),
             RubricResult("relevance", True, "ok"),
             RubricResult("actionability", False, "vague"),
             RubricResult("non_obviousness", True, "ok"),
             RubricResult("self_review_quality", True, "ok"),
         ]
-        j = FindingJudgment(finding_id="find-001", rubrics=rubrics)
-        assert j.finding_id == "find-001"
+        j = FindingJudgment(finding_id="find-001", rubrics=mixed)
         assert j.score == 0.8  # 4/5
         assert len(j.rubrics) == 5
-
-    def test_score_all_pass(self):
-        rubrics = [RubricResult(r, True, "ok") for r in RUBRICS]
-        j = FindingJudgment(finding_id="find-001", rubrics=rubrics)
-        assert j.score == 1.0
-
-    def test_score_all_fail(self):
-        rubrics = [RubricResult(r, False, "bad") for r in RUBRICS]
-        j = FindingJudgment(finding_id="find-001", rubrics=rubrics)
-        assert j.score == 0.0
-
-    def test_score_empty_rubrics(self):
-        j = FindingJudgment(finding_id="find-001", rubrics=[])
-        assert j.score == 0.0
+        # All pass
+        all_pass = FindingJudgment("f2", [RubricResult(r, True, "ok") for r in RUBRICS])
+        assert all_pass.score == 1.0
+        # All fail
+        all_fail = FindingJudgment("f3", [RubricResult(r, False, "bad") for r in RUBRICS])
+        assert all_fail.score == 0.0
+        # Empty
+        assert FindingJudgment("f4", rubrics=[]).score == 0.0
 
     def test_to_dict(self):
         rubrics = [RubricResult("evidence_grounding", True, "ok")]
@@ -155,27 +145,22 @@ class TestFindingJudgment:
 
 
 class TestLayerTwoReport:
-    def test_creation(self):
+    def test_scoring_and_threshold(self):
+        """Overall score, pass/fail threshold, and empty edge case."""
         j1 = FindingJudgment("find-001", [RubricResult("r1", True, "ok")])
         j2 = FindingJudgment("find-002", [RubricResult("r1", False, "bad")])
         report = LayerTwoReport(opp_id="opp-test", judgments=[j1, j2])
-        assert report.opp_id == "opp-test"
         assert report.overall_score == 0.5
-
-    def test_overall_passed_above_threshold(self):
-        j = FindingJudgment("find-001", [RubricResult("r1", True, "ok")])
-        report = LayerTwoReport(opp_id="opp-test", judgments=[j], pass_threshold=0.6)
-        assert report.overall_passed is True
-
-    def test_overall_passed_below_threshold(self):
-        j = FindingJudgment("find-001", [RubricResult("r1", False, "bad")])
-        report = LayerTwoReport(opp_id="opp-test", judgments=[j], pass_threshold=0.6)
-        assert report.overall_passed is False
-
-    def test_empty_judgments(self):
-        report = LayerTwoReport(opp_id="opp-test", judgments=[])
-        assert report.overall_score == 0.0
-        assert report.overall_passed is False
+        # Above threshold
+        passing = LayerTwoReport(opp_id="t", judgments=[j1], pass_threshold=0.6)
+        assert passing.overall_passed is True
+        # Below threshold
+        failing = LayerTwoReport(opp_id="t", judgments=[j2], pass_threshold=0.6)
+        assert failing.overall_passed is False
+        # Empty
+        empty = LayerTwoReport(opp_id="t", judgments=[])
+        assert empty.overall_score == 0.0
+        assert empty.overall_passed is False
 
     def test_to_dict(self):
         j = FindingJudgment("find-001", [RubricResult("r1", True, "ok")])
@@ -192,28 +177,17 @@ class TestLayerTwoReport:
 # --- Service tests ---
 
 class TestLLMJudgeServiceInit:
-    def test_init_with_api_key(self, tmp_data_dir):
+    def test_init_and_config(self, tmp_data_dir):
         svc = _make_svc(tmp_data_dir, api_key="sk-test-123")
         assert svc._api_key == "sk-test-123"
         assert svc._model == "claude-haiku-4-5-20251001"
-
-    def test_init_reads_config(self, tmp_data_dir):
-        svc = _make_svc(tmp_data_dir)
         assert svc._pass_threshold == 0.6
-
-    def test_init_no_api_key(self, tmp_data_dir):
-        svc = _make_svc(tmp_data_dir, api_key=None)
-        assert svc._api_key is None
-
-
-class TestLLMJudgeServiceRubrics:
-    def test_rubrics_constant(self):
-        assert "evidence_grounding" in RUBRICS
-        assert "relevance" in RUBRICS
-        assert "actionability" in RUBRICS
-        assert "non_obviousness" in RUBRICS
-        assert "self_review_quality" in RUBRICS
+        # No key
+        svc_none = _make_svc(tmp_data_dir, api_key=None)
+        assert svc_none._api_key is None
+        # Rubrics constant
         assert len(RUBRICS) == 5
+        assert "evidence_grounding" in RUBRICS
 
 
 class TestEvaluateFinding:

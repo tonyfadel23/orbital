@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
-def _make_workspace_for_gate_test(tmp_data_dir, opp_id, status="converging",
+def _make_workspace_for_gate_test(tmp_data_dir, opp_id, status="orbiting",
                                    with_synthesis=True, with_contributions=True,
                                    with_votes=False, assumption_coverage=True,
                                    finding_density_ok=True):
