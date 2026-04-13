@@ -1684,7 +1684,7 @@ async function sendSetupMessage(fromBtn) {
   input.value = '';
   input.style.height = 'auto';
   const hints = document.getElementById('setup-hints');
-  if (hints) hints.style.display = 'none';
+  if (hints) hideHints(hints);
 
   if (state._setupState === 'idle') {
     // First message — create workspace and launch agent
@@ -1718,6 +1718,8 @@ async function sendSetupMessage(fromBtn) {
   if (!state.setupOppId) return;
   try {
     state._setupState = 'running';
+    state._setupOutputLen = 0;  // Reset so poll detects new post-resume output
+    state._setupFeedLen = 0;
     state._agentDuration = 0;
     state._agentStartTime = Date.now();
     updateActivityIndicator();
@@ -1734,16 +1736,20 @@ async function sendSetupMessage(fromBtn) {
   } catch (err) { console.warn('sendSetupMessage error:', err); removeThinking('setup-feed'); }
 }
 
+function showHints(hints) { hints.classList.remove('d-none'); }
+function hideHints(hints) { hints.classList.add('d-none'); }
+function hintsVisible(hints) { return !hints.classList.contains('d-none'); }
+
 function handleSetupKey(e) {
   const hints = document.getElementById('setup-hints');
-  if (hints && hints.style.display !== 'none') {
-    if (e.key === 'Escape') { hints.style.display = 'none'; return; }
+  if (hints && hintsVisible(hints)) {
+    if (e.key === 'Escape') { hideHints(hints); return; }
     if (e.key === 'Tab' || (e.key === 'Enter' && hints.querySelector('.chat-hint-active'))) {
       e.preventDefault();
       const active = hints.querySelector('.chat-hint-active') || hints.querySelector('.chat-hint');
       if (active) {
         document.getElementById('setup-input').value = active.dataset.value + ' ';
-        hints.style.display = 'none';
+        hideHints(hints);
       }
       return;
     }
@@ -1758,7 +1764,7 @@ function handleSetupKey(e) {
     }
   }
   // Escape stops agent when hints are not visible
-  if (e.key === 'Escape' && (!hints || hints.style.display === 'none')) {
+  if (e.key === 'Escape' && (!hints || !hintsVisible(hints))) {
     if (state._setupState === 'running' || state._setupState === 'plan_ready') {
       stopAgent();
     }
@@ -1788,7 +1794,7 @@ function handleSetupInput(e) {
           <span class="text-muted ml-8">${m.desc}</span>
         </div>`
       ).join('');
-      hints.style.display = '';
+      showHints(hints);
       return;
     }
   }
@@ -1807,11 +1813,11 @@ function handleSetupInput(e) {
           <span class="text-muted ml-8">${m.type}</span>
         </div>`
       ).join('');
-      hints.style.display = '';
+      showHints(hints);
       return;
     }
   }
-  hints.style.display = 'none';
+  hideHints(hints);
 }
 
 async function stopAgent() {
@@ -2307,7 +2313,7 @@ function showEvidenceReview(overlay, sources, query) {
             <span class="evidence-card-status ${data.running ? 'gathering' : 'completed'}">${data.running ? 'Gathering...' : 'Done'}</span>
           </div>
           <div class="evidence-review-card__body">
-            ${displayLines.map(l => `<div class="evidence-review-line">${esc(l)}</div>`).join('')}
+            ${displayLines.map(l => `<div class="evidence-review-line">${renderMarkdown(l)}</div>`).join('')}
           </div>`;
       }
 
@@ -2370,6 +2376,8 @@ function addEvidenceCard(sourceType, query) {
     return '';
   })();
   card._gatheredAt = Date.now();
+  card.onclick = () => openEvidenceDetail(sourceType);
+  card.style.cursor = 'pointer';
   card.innerHTML = `
     <div class="evidence-card-header">
       <span class="evidence-card-icon">${src.icon}</span>
@@ -2503,6 +2511,91 @@ async function loadEvidenceFindings() {
     }
   } catch (err) {
     console.warn('Evidence findings load error:', err);
+  }
+}
+
+// ── Evidence detail slide-over + approval ─────────────────
+async function openEvidenceDetail(sourceType) {
+  if (!state.setupOppId) return;
+  const src = EVIDENCE_SOURCES[sourceType] || { label: sourceType, icon: '🔍', desc: '' };
+  try {
+    const ws = await api.get(`workspaces/${state.setupOppId}`);
+    const ev = (ws?.evidence || []).find(e => e.source_type === sourceType);
+    if (!ev) { toast('No evidence found for ' + src.label); return; }
+
+    const statusClass = ev.status === 'completed' ? 'completed' : ev.status === 'failed' ? 'failed' : 'gathering';
+    const confidenceHtml = ev.confidence
+      ? `<span class="evidence-approval-badge evidence-approval-badge--${ev.confidence === 'high' ? 'approved' : 'pending'}">${esc(ev.confidence)} confidence</span>`
+      : '';
+    const approvalHtml = ev.approval_status
+      ? `<span class="evidence-approval-badge evidence-approval-badge--${ev.approval_status}">${esc(ev.approval_status)}</span>`
+      : '';
+
+    const summaryHtml = ev.summary
+      ? `<div class="evidence-detail-summary">${renderMarkdown(ev.summary)}</div>`
+      : '';
+
+    const findingsHtml = (ev.findings || []).length
+      ? `<h4 style="margin:0 0 8px;font-size:13px;color:var(--text-primary)">Findings</h4>
+         <ol class="evidence-detail-findings">${(ev.findings || []).map(f => renderFindingWithSources(f)).join('')}</ol>`
+      : '';
+
+    const metaItems = [];
+    if (ev.query) metaItems.push(`<strong>Query:</strong> ${esc(ev.query)}`);
+    if (ev.source_detail) metaItems.push(`<strong>Source:</strong> ${esc(ev.source_detail)}`);
+    if (ev.created_at) metaItems.push(`<strong>Started:</strong> ${new Date(ev.created_at).toLocaleString()}`);
+    if (ev.completed_at) metaItems.push(`<strong>Completed:</strong> ${new Date(ev.completed_at).toLocaleString()}`);
+    const metaHtml = metaItems.length
+      ? `<div class="evidence-detail-meta">${metaItems.join('<br>')}</div>`
+      : '';
+
+    const approveDisabled = ev.approval_status === 'approved' ? 'disabled' : '';
+    const rejectDisabled = ev.approval_status === 'rejected' ? 'disabled' : '';
+
+    const html = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <span class="evidence-card-status ${statusClass}">${esc(ev.status || 'unknown')}</span>
+        ${confidenceHtml}
+        ${approvalHtml}
+      </div>
+      ${summaryHtml}
+      ${findingsHtml}
+      ${metaHtml}
+      <div style="display:flex;gap:8px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+        <button class="evidence-btn-approve" ${approveDisabled}
+          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','approved','${sourceType}')">Approve</button>
+        <button class="evidence-btn-reject" ${rejectDisabled}
+          onclick="setEvidenceApproval('${state.setupOppId}','${ev.id}','rejected','${sourceType}')">Reject</button>
+      </div>`;
+
+    openSlideOver(`${src.icon} ${src.label}`, html);
+  } catch (err) {
+    console.warn('Evidence detail error:', err);
+    toast('Failed to load evidence detail');
+  }
+}
+
+async function setEvidenceApproval(oppId, evidenceId, status, sourceType) {
+  try {
+    await api.patch(`evidence/${oppId}/${evidenceId}`, { approval_status: status });
+    toast(`Evidence ${status}`);
+    // Update badge in slide-over
+    openEvidenceDetail(sourceType);
+    // Update card badge if visible
+    const card = document.getElementById(`evidence-card-${sourceType}`);
+    if (card) {
+      let badge = card.querySelector('.evidence-approval-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        const header = card.querySelector('.evidence-card-header');
+        if (header) header.appendChild(badge);
+      }
+      badge.className = `evidence-approval-badge evidence-approval-badge--${status}`;
+      badge.textContent = status;
+    }
+  } catch (err) {
+    console.warn('Evidence approval error:', err);
+    toast('Failed to update approval: ' + err.message);
   }
 }
 
@@ -3745,15 +3838,15 @@ const SLASH_COMMANDS = [
 
 function handleChatKey(e) {
   const hints = document.getElementById('chat-hints');
-  if (hints && hints.style.display !== 'none') {
-    if (e.key === 'Escape') { hints.style.display = 'none'; return; }
+  if (hints && hintsVisible(hints)) {
+    if (e.key === 'Escape') { hideHints(hints); return; }
     if (e.key === 'Tab' || (e.key === 'Enter' && hints.querySelector('.chat-hint-active'))) {
       e.preventDefault();
       const active = hints.querySelector('.chat-hint-active') || hints.querySelector('.chat-hint');
       if (active) {
         const input = document.getElementById('chat-input');
         input.value = active.dataset.value + ' ';
-        hints.style.display = 'none';
+        hideHints(hints);
       }
       return;
     }
@@ -3768,7 +3861,7 @@ function handleChatKey(e) {
     }
   }
   // Escape stops agent when hints are not visible
-  if (e.key === 'Escape' && (!hints || hints.style.display === 'none')) {
+  if (e.key === 'Escape' && (!hints || !hintsVisible(hints))) {
     if (state._agentPoll) stopAgent();
     return;
   }
@@ -3793,7 +3886,7 @@ function handleChatInput(e) {
           <span class="text-muted ml-8">${m.desc}</span>
         </div>`
       ).join('');
-      hints.style.display = '';
+      showHints(hints);
       return;
     }
   }
@@ -3815,11 +3908,11 @@ function handleChatInput(e) {
           <span class="text-muted ml-8">${m.type}</span>
         </div>`
       ).join('');
-      hints.style.display = '';
+      showHints(hints);
       return;
     }
   }
-  hints.style.display = 'none';
+  hideHints(hints);
 }
 
 async function sendChatMessage() {
@@ -3828,7 +3921,7 @@ async function sendChatMessage() {
   const text = input.value.trim();
   input.value = '';
   const hints = document.getElementById('chat-hints');
-  if (hints) hints.style.display = 'none';
+  if (hints) hideHints(hints);
   // Add user message to feed immediately
   const feed = document.getElementById('agent-feed');
   if (feed) {
@@ -4411,13 +4504,11 @@ async function saveQualitySettings() {
 
   try {
     await api.patch('quality/config', {
-      quality_gates: {
-        enabled,
-        blocking_mode,
-        layer_1,
-        layer_2: { enabled: l2_enabled },
-        layer_3: { enabled: l3_enabled }
-      }
+      enabled,
+      blocking_mode,
+      layer_1,
+      layer_2: { enabled: l2_enabled },
+      layer_3: { enabled: l3_enabled }
     });
     toast('Settings saved');
   } catch (e) {

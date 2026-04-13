@@ -1587,6 +1587,25 @@ html, body {
 .evidence-review-line:last-child { border-bottom: none; }
 .evidence-review-cb { margin: 0; }
 
+/* Evidence approval */
+.evidence-approval-badge { font-size: 10px; padding: 2px 8px; border-radius: var(--radius-sm); font-weight: 600; text-transform: capitalize; }
+.evidence-approval-badge--approved { color: var(--color-product); background: rgba(16,185,129,0.15); }
+.evidence-approval-badge--rejected { color: var(--color-counter); background: rgba(239,68,68,0.12); }
+.evidence-approval-badge--pending { color: var(--text-muted); background: rgba(255,255,255,0.06); }
+.evidence-approval-badge--high { color: var(--color-product); background: rgba(16,185,129,0.15); }
+.evidence-approval-badge--medium { color: var(--color-brief); background: rgba(245,158,11,0.15); }
+.evidence-approval-badge--low { color: var(--text-muted); background: rgba(255,255,255,0.06); }
+.evidence-btn-approve { background: var(--color-product); color: white; border: none; padding: 8px 20px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 13px; }
+.evidence-btn-approve:hover:not(:disabled) { filter: brightness(1.1); }
+.evidence-btn-approve:disabled { opacity: 0.5; cursor: default; }
+.evidence-btn-reject { background: var(--color-counter); color: white; border: none; padding: 8px 20px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 13px; }
+.evidence-btn-reject:hover:not(:disabled) { filter: brightness(1.1); }
+.evidence-btn-reject:disabled { opacity: 0.5; cursor: default; }
+.evidence-detail-summary { margin-bottom: 16px; color: var(--text-secondary); line-height: 1.6; }
+.evidence-detail-findings { list-style: decimal; padding-left: 20px; margin: 0; }
+.evidence-detail-findings li { margin-bottom: 12px; line-height: 1.5; }
+.evidence-detail-meta { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); line-height: 1.8; }
+
 /* Phase transition animations */
 .phase-exit { animation: phaseExit 250ms ease-in forwards; }
 .phase-enter { animation: phaseEnter 250ms ease-out forwards; }

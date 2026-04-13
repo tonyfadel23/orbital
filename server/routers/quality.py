@@ -97,6 +97,8 @@ class QualityConfigUpdate(BaseModel):
     enabled: bool | None = None
     blocking_mode: str | None = None
     layer_1: dict | None = None
+    layer_2: dict | None = None
+    layer_3: dict | None = None
 
 
 @router.get("/api/quality/config")
@@ -124,6 +126,16 @@ def patch_quality_config(body: QualityConfigUpdate, request: Request):
             else:
                 existing_l1[gate_name] = gate_updates
         qg["layer_1"] = existing_l1
+
+    if body.layer_2 is not None:
+        existing_l2 = qg.get("layer_2", {})
+        existing_l2.update(body.layer_2)
+        qg["layer_2"] = existing_l2
+
+    if body.layer_3 is not None:
+        existing_l3 = qg.get("layer_3", {})
+        existing_l3.update(body.layer_3)
+        qg["layer_3"] = existing_l3
 
     config["quality_gates"] = qg
     workspace_svc.config_path.write_text(json.dumps(config, indent=2))

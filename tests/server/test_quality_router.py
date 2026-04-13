@@ -181,3 +181,19 @@ class TestQualityRouter:
         assert resp.status_code == 200
         data = resp.json()
         assert data["layer_1"]["assumption_coverage"]["min_coverage"] == 0.8
+
+    async def test_patch_quality_config_layer2(self, client):
+        resp = await client.patch("/api/quality/config", json={
+            "layer_2": {"enabled": False}
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["layer_2"]["enabled"] is False
+
+    async def test_patch_quality_config_layer3(self, client):
+        resp = await client.patch("/api/quality/config", json={
+            "layer_3": {"enabled": False}
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["layer_3"]["enabled"] is False

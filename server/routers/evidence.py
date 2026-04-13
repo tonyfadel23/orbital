@@ -1,5 +1,8 @@
 """Evidence router — gather evidence for investigations."""
 
+import json
+from enum import Enum
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -10,6 +13,16 @@ router = APIRouter(prefix="/api/evidence", tags=["evidence"])
 class GatherRequest(BaseModel):
     source_type: str
     query: str
+
+
+class ApprovalStatus(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class EvidenceApproval(BaseModel):
+    approval_status: ApprovalStatus
 
 
 @router.post("/{opp_id}/gather")
@@ -50,3 +63,21 @@ def evidence_status(opp_id: str, request: Request):
         "running": any_running,
         "evidence_outputs": outputs,
     }
+
+
+@router.patch("/{opp_id}/{evidence_id}")
+def update_evidence(opp_id: str, evidence_id: str, body: EvidenceApproval, request: Request):
+    workspace_svc = request.app.state.workspace_svc
+    opp = workspace_svc.get_opportunity(opp_id)
+    if opp is None:
+        raise HTTPException(404, f"Workspace {opp_id} not found")
+    ev_dir = workspace_svc.data_dir / "workspaces" / opp_id / "evidence"
+    if not ev_dir.exists():
+        raise HTTPException(404, f"Evidence {evidence_id} not found")
+    for f in ev_dir.glob("*.json"):
+        data = json.loads(f.read_text())
+        if data.get("id") == evidence_id:
+            data["approval_status"] = body.approval_status.value
+            f.write_text(json.dumps(data, indent=2))
+            return data
+    raise HTTPException(404, f"Evidence {evidence_id} not found")

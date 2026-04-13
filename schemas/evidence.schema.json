@@ -87,6 +87,11 @@
       "type": "string",
       "description": "Error message if status is 'failed'"
     },
+    "approval_status": {
+      "type": "string",
+      "enum": ["pending", "approved", "rejected"],
+      "description": "Human review status of this evidence"
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"
