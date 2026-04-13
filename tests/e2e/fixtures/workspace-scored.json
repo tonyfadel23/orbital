@@ -1,0 +1,50 @@
+{
+  "id": "opp-20260412-120000",
+  "type": "hypothesis",
+  "title": "E2E Test — Scored Workspace",
+  "description": "Workspace with completed voting and synthesis.",
+  "context_refs": ["L1-global"],
+  "assumptions": [
+    {"id": "asm-001", "content": "Users want faster checkout", "status": "tested", "importance": "critical"},
+    {"id": "asm-002", "content": "Mobile users abandon at payment step", "status": "tested", "importance": "high"}
+  ],
+  "success_signals": ["Checkout time drops by 20%"],
+  "kill_signals": ["No change in checkout time after 2 weeks"],
+  "status": "scored",
+  "roster": [
+    {"function": "product", "rationale": "Orchestrates investigation", "investigation_tracks": [{"track": "opportunity framing", "question": "What is the core question?", "expected_artifacts": ["product.md"]}], "tool_access": ["google-drive"]},
+    {"function": "data", "rationale": "Baseline analysis", "investigation_tracks": [{"track": "baseline analysis", "question": "What are the current metrics?", "expected_artifacts": ["data.md"]}], "tool_access": ["google-sheets"]},
+    {"function": "design", "rationale": "Experience audit", "investigation_tracks": [{"track": "experience audit", "question": "What are the UX gaps?", "expected_artifacts": ["design.md"]}], "tool_access": ["figma"]}
+  ],
+  "synthesis": {
+    "solutions": [
+      {
+        "solution_id": "sol-001",
+        "title": "Incremental Checkout Redesign",
+        "archetype": "incremental",
+        "description": "Streamline the existing checkout flow by reducing steps and improving payment form UX.",
+        "ice": {"impact": 8, "confidence": 7, "ease": 7},
+        "evidence_refs": ["F-001", "F-002"]
+      },
+      {
+        "solution_id": "sol-002",
+        "title": "Mobile-First Payment Overhaul",
+        "archetype": "ambitious",
+        "description": "Complete redesign of mobile payment experience with one-tap checkout and biometric auth.",
+        "ice": {"impact": 9, "confidence": 5, "ease": 4},
+        "evidence_refs": ["F-001", "F-003"]
+      },
+      {
+        "solution_id": "sol-003",
+        "title": "Quick-Win Payment Shortcuts",
+        "archetype": "incremental",
+        "description": "Add saved payment methods and express checkout for returning users.",
+        "ice": {"impact": 5, "confidence": 8, "ease": 9},
+        "evidence_refs": ["F-002", "F-004"]
+      }
+    ]
+  },
+  "decision": null,
+  "created_at": "2026-04-12T12:00:00Z",
+  "updated_at": "2026-04-12T16:30:00Z"
+}

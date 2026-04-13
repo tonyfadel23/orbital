@@ -1,0 +1,18 @@
+{
+  "opp_id": "opp-20260412-120000",
+  "timestamp": "2026-04-12T16:00:00Z",
+  "layer_1": {
+    "overall_passed": false,
+    "overall_score": 0.0,
+    "gates": [
+      {"gate_name": "assumption_coverage", "passed": false, "score": 0.0, "threshold": 1.0, "blocking": true, "detail": "0/2 assumptions covered"},
+      {"gate_name": "confidence_floor", "passed": false, "score": 0.2, "threshold": 0.4, "blocking": true, "detail": "data-round-1 avg 0.2 < 0.4"},
+      {"gate_name": "solution_distinctiveness", "passed": false, "score": 0.9, "threshold": 0.7, "blocking": false, "detail": "Max Jaccard 0.9 > 0.7"},
+      {"gate_name": "evidence_freshness", "passed": false, "score": 0.0, "threshold": 180, "blocking": false, "detail": "Evidence is 250 days old"},
+      {"gate_name": "vote_quorum", "passed": false, "score": 0.33, "threshold": 0.8, "blocking": true, "detail": "1/3 agents voted (33%)"},
+      {"gate_name": "finding_density", "passed": false, "score": 0.0, "threshold": 3, "blocking": true, "detail": "All contributions have < 3 findings"}
+    ]
+  },
+  "layer_2": null,
+  "layer_3": null
+}

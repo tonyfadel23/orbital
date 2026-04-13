@@ -1,0 +1,60 @@
+{
+  "id": "opp-20260412-120000",
+  "type": "hypothesis",
+  "title": "E2E Test — Workspace With Contributions",
+  "description": "Workspace in orbiting phase with agent contributions and findings.",
+  "context_refs": ["L1-global"],
+  "assumptions": [
+    {"id": "asm-001", "content": "Users want faster checkout", "status": "tested", "importance": "critical"},
+    {"id": "asm-002", "content": "Mobile users abandon at payment step", "status": "tested", "importance": "high"}
+  ],
+  "success_signals": ["Checkout time drops by 20%"],
+  "kill_signals": ["No change in checkout time after 2 weeks"],
+  "status": "orbiting",
+  "roster": [
+    {"function": "product", "rationale": "Orchestrates investigation", "investigation_tracks": [{"track": "opportunity framing", "question": "What is the core question?", "expected_artifacts": ["product.md"]}], "tool_access": ["google-drive"]},
+    {"function": "data", "rationale": "Baseline analysis", "investigation_tracks": [{"track": "baseline analysis", "question": "What are the current metrics?", "expected_artifacts": ["data.md"]}], "tool_access": ["google-sheets"]},
+    {"function": "design", "rationale": "Experience audit", "investigation_tracks": [{"track": "experience audit", "question": "What are the UX gaps?", "expected_artifacts": ["design.md"]}], "tool_access": ["figma"]}
+  ],
+  "contributions": [
+    {
+      "contribution_id": "product-round-1",
+      "function": "product",
+      "round": 1,
+      "timestamp": "2026-04-12T13:30:00Z",
+      "findings": [
+        {"id": "F-001", "type": "signal", "content": "Checkout is the #1 complaint in app reviews", "confidence": 0.85, "source": "app-reviews", "source_date": "2026-03-15"},
+        {"id": "F-002", "type": "pattern", "content": "3 competitors launched one-tap checkout in Q1", "confidence": 0.78, "source": "market-intel", "source_date": "2026-04-01"},
+        {"id": "F-003", "type": "signal", "content": "Internal NPS survey shows checkout as top friction", "confidence": 0.82, "source": "data-query", "source_date": "2026-03-20"}
+      ],
+      "assumptions_addressed": ["asm-001"]
+    },
+    {
+      "contribution_id": "data-round-1",
+      "function": "data",
+      "round": 1,
+      "timestamp": "2026-04-12T13:45:00Z",
+      "findings": [
+        {"id": "F-004", "type": "metric", "content": "34% drop-off at payment step", "confidence": 0.92, "source": "data-query", "source_date": "2026-04-10"},
+        {"id": "F-005", "type": "metric", "content": "Mobile users 2.3x more likely to abandon", "confidence": 0.88, "source": "data-query", "source_date": "2026-04-10"},
+        {"id": "F-006", "type": "pattern", "content": "Saved payment users convert 40% higher", "confidence": 0.75, "source": "data-query", "source_date": "2026-04-08"}
+      ],
+      "assumptions_addressed": ["asm-002"]
+    },
+    {
+      "contribution_id": "design-round-1",
+      "function": "design",
+      "round": 1,
+      "timestamp": "2026-04-12T14:00:00Z",
+      "findings": [
+        {"id": "F-007", "type": "insight", "content": "Payment form requires 7 taps on mobile — 3 more than best practice", "confidence": 0.80, "source": "doc-search", "source_date": "2026-04-05"},
+        {"id": "F-008", "type": "insight", "content": "Error recovery flow sends users back to cart, losing context", "confidence": 0.72, "source": "doc-search", "source_date": "2026-04-05"},
+        {"id": "F-009", "type": "signal", "content": "Competitor UX audit shows 2-step checkout as emerging standard", "confidence": 0.65, "source": "market-intel", "source_date": "2026-03-28"}
+      ],
+      "assumptions_addressed": ["asm-001", "asm-002"]
+    }
+  ],
+  "decision": null,
+  "created_at": "2026-04-12T12:00:00Z",
+  "updated_at": "2026-04-12T14:00:00Z"
+}

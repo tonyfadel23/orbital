@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "blocking_mode": "warn",
+  "layer_1": {
+    "assumption_coverage": {"enabled": true, "min_coverage": 1.0, "blocking": true},
+    "confidence_floor": {"enabled": true, "threshold": 0.4, "blocking": true},
+    "solution_distinctiveness": {"enabled": true, "max_jaccard": 0.7, "blocking": false},
+    "evidence_freshness": {"enabled": true, "max_age_days": 180, "blocking": false},
+    "vote_quorum": {"enabled": true, "min_pct": 0.8, "blocking": true},
+    "finding_density": {"enabled": true, "min_findings": 3, "blocking": true}
+  },
+  "layer_2": {
+    "enabled": true,
+    "model": "claude-haiku-4-5-20251001",
+    "rubrics": ["evidence_grounding", "relevance", "actionability", "non_obviousness", "self_review_quality"],
+    "pass_threshold": 0.6
+  },
+  "layer_3": {
+    "enabled": true,
+    "rubrics": ["contradictions_surfaced", "minority_viewpoints", "evidence_based_recommendation", "risk_weighting", "solution_diversity"]
+  }
+}

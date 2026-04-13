@@ -1,0 +1,26 @@
+{
+  "opp_id": "opp-20260412-120000",
+  "timestamp": "2026-04-12T16:00:00Z",
+  "layer_1": {
+    "overall_passed": true,
+    "overall_score": 1.0,
+    "gates": [
+      {"gate_name": "assumption_coverage", "passed": true, "score": 1.0, "threshold": 1.0, "blocking": true, "detail": "2/2 covered"},
+      {"gate_name": "confidence_floor", "passed": true, "score": 0.85, "threshold": 0.4, "blocking": true, "detail": "All above 0.4"},
+      {"gate_name": "solution_distinctiveness", "passed": true, "score": 0.3, "threshold": 0.7, "blocking": false, "detail": "Distinct"},
+      {"gate_name": "evidence_freshness", "passed": true, "score": 1.0, "threshold": 180, "blocking": false, "detail": "Fresh"},
+      {"gate_name": "vote_quorum", "passed": true, "score": 1.0, "threshold": 0.8, "blocking": true, "detail": "3/3 voted"},
+      {"gate_name": "finding_density", "passed": true, "score": 1.0, "threshold": 3, "blocking": true, "detail": "3+ findings each"}
+    ]
+  },
+  "layer_2": {
+    "rubrics": {
+      "evidence_grounding": {"score": 0.8, "passed": true},
+      "relevance": {"score": 0.9, "passed": true},
+      "actionability": {"score": 0.7, "passed": true},
+      "non_obviousness": {"score": 0.6, "passed": true},
+      "self_review_quality": {"score": 0.5, "passed": false}
+    }
+  },
+  "layer_3": null
+}

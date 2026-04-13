@@ -1,0 +1,80 @@
+[
+  {
+    "vote_id": "vote-product-20260412-160000",
+    "opp_id": "opp-20260412-120000",
+    "function": "product",
+    "timestamp": "2026-04-12T16:00:00Z",
+    "rankings": [
+      {
+        "solution_id": "sol-001",
+        "rank": 1,
+        "rationale": "Strongest evidence base and lowest implementation risk for checkout improvement",
+        "scores": {"impact": 8, "confidence": 7, "ease": 6}
+      },
+      {
+        "solution_id": "sol-002",
+        "rank": 2,
+        "rationale": "Ambitious scope but addresses root cause of mobile abandonment pattern",
+        "scores": {"impact": 9, "confidence": 5, "ease": 4}
+      },
+      {
+        "solution_id": "sol-003",
+        "rank": 3,
+        "rationale": "Incremental gains possible but does not move the needle on core metric",
+        "scores": {"impact": 5, "confidence": 8, "ease": 9}
+      }
+    ]
+  },
+  {
+    "vote_id": "vote-data-20260412-160100",
+    "opp_id": "opp-20260412-120000",
+    "function": "data",
+    "timestamp": "2026-04-12T16:01:00Z",
+    "rankings": [
+      {
+        "solution_id": "sol-002",
+        "rank": 1,
+        "rationale": "Data shows strongest correlation between mobile UX changes and conversion lift",
+        "scores": {"impact": 9, "confidence": 6, "ease": 5}
+      },
+      {
+        "solution_id": "sol-001",
+        "rank": 2,
+        "rationale": "Solid incremental approach with measurable KPIs already in place",
+        "scores": {"impact": 7, "confidence": 8, "ease": 7}
+      },
+      {
+        "solution_id": "sol-003",
+        "rank": 3,
+        "rationale": "Low-effort option lacks sufficient evidence of meaningful impact",
+        "scores": {"impact": 4, "confidence": 7, "ease": 9}
+      }
+    ]
+  },
+  {
+    "vote_id": "vote-design-20260412-160200",
+    "opp_id": "opp-20260412-120000",
+    "function": "design",
+    "timestamp": "2026-04-12T16:02:00Z",
+    "rankings": [
+      {
+        "solution_id": "sol-001",
+        "rank": 1,
+        "rationale": "Best user experience tradeoff — addresses top pain points identified in experience audit",
+        "scores": {"impact": 8, "confidence": 7, "ease": 7}
+      },
+      {
+        "solution_id": "sol-003",
+        "rank": 2,
+        "rationale": "Quick wins on checkout flow but misses deeper interaction issues",
+        "scores": {"impact": 5, "confidence": 8, "ease": 9}
+      },
+      {
+        "solution_id": "sol-002",
+        "rank": 3,
+        "rationale": "Requires significant design investment with uncertain user adoption",
+        "scores": {"impact": 8, "confidence": 4, "ease": 3}
+      }
+    ]
+  }
+]

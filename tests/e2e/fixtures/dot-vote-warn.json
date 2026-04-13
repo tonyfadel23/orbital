@@ -1,0 +1,14 @@
+{
+  "status": "launched",
+  "mode": "dot_vote",
+  "opp_id": "opp-20260412-120000",
+  "functions": {
+    "product": true,
+    "data": true,
+    "design": true
+  },
+  "warnings": [
+    "finding_density: design-round-1 has only 2 findings (min 3)",
+    "evidence_freshness: some evidence is 200 days old (max 180)"
+  ]
+}

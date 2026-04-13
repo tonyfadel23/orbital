@@ -1,0 +1,18 @@
+{
+  "opp_id": "opp-20260412-120000",
+  "timestamp": "2026-04-12T16:00:00Z",
+  "layer_1": {
+    "overall_passed": false,
+    "overall_score": 0.67,
+    "gates": [
+      {"gate_name": "assumption_coverage", "passed": true, "score": 1.0, "threshold": 1.0, "blocking": true, "detail": "2/2 assumptions covered"},
+      {"gate_name": "confidence_floor", "passed": false, "score": 0.35, "threshold": 0.4, "blocking": true, "detail": "data-round-1 avg 0.35 < 0.4"},
+      {"gate_name": "solution_distinctiveness", "passed": true, "score": 0.5, "threshold": 0.7, "blocking": false, "detail": "Max Jaccard 0.5 < 0.7"},
+      {"gate_name": "evidence_freshness", "passed": true, "score": 1.0, "threshold": 180, "blocking": false, "detail": "All evidence within 180 days"},
+      {"gate_name": "vote_quorum", "passed": true, "score": 1.0, "threshold": 0.8, "blocking": true, "detail": "3/3 agents voted (100%)"},
+      {"gate_name": "finding_density", "passed": false, "score": 0.0, "threshold": 3, "blocking": true, "detail": "design-round-1 has only 1 finding (min 3)"}
+    ]
+  },
+  "layer_2": null,
+  "layer_3": null
+}
