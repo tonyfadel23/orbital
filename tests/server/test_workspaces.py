@@ -216,19 +216,6 @@ class TestWorkspaceServiceCorruptedData:
         assert len(workspaces) == 1
         assert workspaces[0]["id"] == "opp-20260405-120000"
 
-    def test_list_context_layers_skips_corrupted(self, tmp_data_dir):
-        """list_context_layers() skips files with corrupted JSON."""
-        # Write a corrupted context layer file
-        layer_dir = tmp_data_dir / "context" / "L1"
-        (layer_dir / "corrupted.json").write_text("{nope")
-
-        svc = WorkspaceService(tmp_data_dir)
-        layers = svc.list_context_layers("L1")
-        # Should return the valid 'global' layer only, skipping corrupted
-        valid_ids = [layer["id"] for layer in layers]
-        assert "L1-global" in valid_ids
-        assert not any("corrupted" in lid for lid in valid_ids)
-
     def test_get_opportunity_corrupted_logs_warning(self, tmp_data_dir, caplog):
         """get_opportunity() logs a warning when JSON is corrupted."""
         ws_dir = tmp_data_dir / "workspaces" / "opp-corrupted-log"

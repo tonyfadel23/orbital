@@ -16,12 +16,9 @@ class WorkspaceService:
         self.context_dir = data_dir / "context"
         self.config_path = data_dir / "config.json"
 
-        # Prefer markdown product_lines/ if it exists
+        from server.services.context_reader import MarkdownContextReader
         product_lines_dir = self.context_dir / "product_lines"
-        self._use_markdown = product_lines_dir.exists() and product_lines_dir.is_dir()
-        if self._use_markdown:
-            from server.services.context_reader import MarkdownContextReader
-            self._md_reader = MarkdownContextReader(product_lines_dir)
+        self._md_reader = MarkdownContextReader(product_lines_dir)
 
     def list_workspaces(self) -> list[dict]:
         if not self.workspaces_dir.exists():
@@ -240,46 +237,10 @@ class WorkspaceService:
     # --- Context layers ---
 
     def list_context_layers(self, layer_type: str | None = None) -> list[dict]:
-        if self._use_markdown:
-            return self._md_reader.list_layers(layer_type=layer_type)
-        # Legacy JSON fallback
-        if not self.context_dir.exists():
-            return []
-        result = []
-        dirs = [self.context_dir / layer_type] if layer_type else sorted(self.context_dir.iterdir())
-        for layer_dir in dirs:
-            if not layer_dir.is_dir():
-                continue
-            for f in sorted(layer_dir.iterdir()):
-                if f.suffix != ".json":
-                    continue
-                try:
-                    data = json.loads(f.read_text())
-                except json.JSONDecodeError:
-                    logger.warning("Skipping corrupted context layer %s/%s", layer_dir.name, f.name)
-                    continue
-                result.append({
-                    "id": data.get("id", f"{layer_dir.name}-{f.stem}"),
-                    "type": data.get("type", ""),
-                    "name": data.get("name", f.stem),
-                    "layer_type": layer_dir.name,
-                    "file_name": f.stem,
-                    "sufficiency": data.get("sufficiency"),
-                })
-        return result
+        return self._md_reader.list_layers(layer_type=layer_type)
 
     def get_context_layer(self, layer_type: str, name: str) -> dict | None:
-        if self._use_markdown:
-            return self._md_reader.get_layer(layer_type, name)
-        # Legacy JSON fallback
-        path = self.context_dir / layer_type / f"{name}.json"
-        if not path.exists():
-            return None
-        try:
-            return json.loads(path.read_text())
-        except json.JSONDecodeError:
-            logger.warning("Corrupted context layer %s/%s", layer_type, name)
-            return None
+        return self._md_reader.get_layer(layer_type, name)
 
     # --- Config ---
 

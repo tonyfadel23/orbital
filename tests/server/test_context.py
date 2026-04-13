@@ -253,49 +253,6 @@ def product_lines(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# WorkspaceService context (old L1/L2a/L2b system via conftest fixture)
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestContextService:
-    def test_list_context_layers(self, tmp_data_dir):
-        svc = WorkspaceService(tmp_data_dir)
-        layers = svc.list_context_layers()
-        assert len(layers) == 4
-        ids = {l["id"] for l in layers}
-        assert ids == {"L1-global", "L2a-groceries", "L2a-gr", "L2b-ae"}
-        # Spot-check sufficiency and file_name fields
-        gr = next(l for l in layers if l["id"] == "L2a-gr")
-        assert gr["file_name"] == "gr"
-        assert gr["sufficiency"]["status"] == "gaps_identified"
-        global_layer = next(l for l in layers if l["id"] == "L1-global")
-        assert global_layer["sufficiency"]["status"] == "sufficient"
-
-    def test_list_context_by_type(self, tmp_data_dir):
-        svc = WorkspaceService(tmp_data_dir)
-        layers = svc.list_context_layers(layer_type="L2a")
-        assert len(layers) == 2
-        assert "L2a-gr" in {l["id"] for l in layers}
-
-    def test_get_context_layer(self, tmp_data_dir):
-        svc = WorkspaceService(tmp_data_dir)
-        ctx = svc.get_context_layer("L2a", "gr")
-        assert ctx["id"] == "L2a-gr"
-        assert ctx["type"] == "business_line"
-        assert ctx["name"] == "grocery & retail"
-        assert "product_overview" in ctx["content"]
-        assert ctx["sufficiency"]["status"] == "gaps_identified"
-        # Also verify a simple get
-        global_ctx = svc.get_context_layer("L1", "global")
-        assert global_ctx["id"] == "L1-global"
-        assert global_ctx["type"] == "global"
-
-    def test_get_context_layer_not_found(self, tmp_data_dir):
-        svc = WorkspaceService(tmp_data_dir)
-        assert svc.get_context_layer("L1", "nonexistent") is None
-
-
-# ═══════════════════════════════════════════════════════════════════
 # MarkdownContextReader (product_lines/ _context.md files)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -443,30 +400,3 @@ class TestIndexHelpers:
         assert _detect_staleness(None, threshold_days=30) is True
 
 
-# ═══════════════════════════════════════════════════════════════════
-# Context Router (HTTP endpoints)
-# ═══════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.asyncio
-class TestContextRouter:
-    async def test_list_all_context(self, client):
-        resp = await client.get("/api/context")
-        assert resp.status_code == 200
-        assert len(resp.json()) == 4
-
-    async def test_list_context_by_type(self, client):
-        resp = await client.get("/api/context/L2b")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "L2b-ae"
-
-    async def test_get_context_layer(self, client):
-        resp = await client.get("/api/context/L1/global")
-        assert resp.status_code == 200
-        assert resp.json()["type"] == "global"
-
-    async def test_get_context_not_found(self, client):
-        resp = await client.get("/api/context/L1/nonexistent")
-        assert resp.status_code == 404
