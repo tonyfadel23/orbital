@@ -559,6 +559,33 @@ class TestCliBridge:
         supports_pos = lower.index("what supports")
         assert rec_pos < supports_pos, "Recommendation must appear before supporting evidence"
 
+    def test_assemble_writes_roster_on_first_turn(self, tmp_project_root, tmp_data_dir):
+        """Assemble prompt must instruct roster write on ALL turns including the first."""
+        opp_id = self._make_open_workspace(tmp_data_dir, opp_id="opp-first-turn-write")
+        bridge = CliBridge(tmp_project_root)
+        cmd = bridge.generate_assemble_command(opp_id)
+        lower = cmd.lower()
+
+        # Must NOT say "every turn after the first" — that excludes the first turn
+        assert "after the first" not in lower, (
+            "Prompt must not exclude the first turn from roster writes"
+        )
+
+        # The write instruction for roster must appear in a section that covers
+        # ALL turns (including first), not gated behind "subsequent turns"
+        # Look for a write instruction that's part of the step sequence (before subsequent turns)
+        step2_pos = lower.index("step 2")
+        subsequent_section = lower.find("subsequent turn")
+
+        # There must be an explicit write step between step 2 and the subsequent-turns section
+        # (or the subsequent-turns gating must be removed entirely)
+        if subsequent_section > 0:
+            between = lower[step2_pos:subsequent_section]
+            assert "write" in between and "roster" in between, (
+                "A roster write instruction must appear in the main steps (before 'subsequent turns'), "
+                "not only inside the subsequent-turns section"
+            )
+
     # --- Dot-vote command generation ---
 
     def _make_synthesized_workspace(self, tmp_data_dir, opp_id="opp-20260412-170000", **overrides):
