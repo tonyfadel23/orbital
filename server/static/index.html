@@ -996,7 +996,26 @@ async function deleteWorkspace(id, title) {
 
 function detectPhase(opp) {
   if (!opp) return 'agree';
-  if (opp.status === 'orbiting' || opp.status === 'converging') return 'investigate';
+  const PHASE_MAP = {
+    // Canonical statuses
+    aligning: 'agree',
+    framed: 'assemble',
+    assembled: 'assemble',
+    orbiting: 'investigate',
+    scoring: 'investigate',
+    decided: 'investigate',
+    // Legacy aliases (backward compat with old workspace data)
+    refining: 'agree',
+    agreed: 'assemble',
+    confirmed: 'assemble',
+    assembling: 'assemble',
+    converging: 'investigate',
+    presented: 'investigate',
+    landed: 'investigate',
+  };
+  const phase = PHASE_MAP[opp.status];
+  if (phase) return phase;
+  // Fallback: roster presence implies assemble
   if (opp.roster && opp.roster.length > 0) return 'assemble';
   return 'agree';
 }

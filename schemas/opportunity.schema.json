@@ -69,8 +69,8 @@
     },
     "status": {
       "type": "string",
-      "enum": ["aligning", "assembled", "orbiting", "converging", "scoring", "landed"],
-      "description": "Current lifecycle state"
+      "enum": ["aligning", "framed", "assembled", "orbiting", "scoring", "decided"],
+      "description": "Current lifecycle state: aligning → framed → assembled → orbiting → scoring → decided"
     },
     "decision": {
       "oneOf": [

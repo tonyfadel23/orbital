@@ -14,20 +14,20 @@ compatibility:
 Recommend, configure, and lock the agent roster for an Orbital investigation.
 
 ## When to Use
-- After `/agree` has produced a framed opportunity (status `"assembled"`)
+- After `/agree` has produced a framed opportunity (status `"framed"`)
 - "Assemble the team", "set up the investigation", "who should investigate this?"
 - User wants to configure which agents, tools, and investigation tracks to use
 
 ## Prerequisites
 - Workspace exists with `opportunity.json`
-- Status must be `"assembled"` (framing confirmed via `/agree`)
+- Status must be `"framed"` (framing confirmed via `/agree`)
 - Roster must be `null` (team not yet assembled)
 
 ## Flow
 
 ### Turn 1 — Analyze & Recommend
 
-1. Read `{workspace}/opportunity.json` — validate status = `"assembled"`, roster = `null`
+1. Read `{workspace}/opportunity.json` — validate status = `"framed"`, roster = `null`
 2. Read `data/config.json`:
    - `roster_templates` — core, market_entry, technical_deep_dive, full_spectrum
    - `available_agents` — all agents with display names, roles, default tool access
@@ -94,7 +94,7 @@ When user confirms the roster:
      }
    ]
    ```
-2. Update status: `"assembled"` → `"orbiting"`
+2. Update status: `"framed"` → `"assembled"`
 3. Append to `refinement_history`: `{"action": "roster_confirmed", "timestamp": "..."}`
 4. Print summary: "Team assembled. N agents, M investigation tracks. Ready — run `/orbit` to start the investigation."
 
@@ -118,7 +118,7 @@ When recommending tool access, explain what each tool contributes to the agent's
 ## Output
 - Updated `opportunity.json` with:
   - `roster` array populated with function, rationale, investigation_tracks, tool_access per agent
-  - `status` changed from `"assembled"` to `"orbiting"`
+  - `status` changed from `"framed"` to `"assembled"`
   - `refinement_history` entries for roster modifications and confirmation
 
 ## Next Step

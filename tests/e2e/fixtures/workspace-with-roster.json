@@ -10,7 +10,7 @@
   ],
   "success_signals": ["Checkout time drops by 20%"],
   "kill_signals": ["No change in checkout time after 2 weeks"],
-  "status": "agreed",
+  "status": "assembled",
   "roster": [
     {"function": "product", "rationale": "Orchestrates investigation", "investigation_tracks": [{"track": "opportunity framing", "question": "What is the core question?", "expected_artifacts": ["product.md"]}], "tool_access": ["google-drive"]},
     {"function": "data", "rationale": "Baseline analysis", "investigation_tracks": [{"track": "baseline analysis", "question": "What are the current metrics?", "expected_artifacts": ["data.md"]}], "tool_access": ["google-sheets"]},

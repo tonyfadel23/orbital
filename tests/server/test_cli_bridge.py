@@ -422,7 +422,7 @@ class TestCliBridge:
     # --- Assemble command generation ---
 
     def _make_open_workspace(self, tmp_data_dir, opp_id="opp-20260412-160000", **overrides):
-        """Helper: create a workspace with status=assembled, roster=null."""
+        """Helper: create a workspace with status=framed, roster=null."""
         import json
         ws = tmp_data_dir / "workspaces" / opp_id
         ws.mkdir(parents=True, exist_ok=True)
@@ -438,7 +438,7 @@ class TestCliBridge:
             ],
             "success_signals": ["Basket creation rate > 5%"],
             "kill_signals": ["No engagement after 2 weeks"],
-            "status": "assembled", "roster": None, "decision": None,
+            "status": "framed", "roster": None, "decision": None,
             "created_at": "2026-04-12T16:00:00Z",
             "updated_at": "2026-04-12T16:00:00Z",
         }
@@ -455,16 +455,16 @@ class TestCliBridge:
         assert "config.json" in lower
         assert ".claude/agents" in lower
 
-    def test_assemble_rejects_non_assembled_status(self, tmp_project_root, tmp_data_dir):
-        """Assemble must reject opportunities not in 'assembled' status."""
-        for status in ("aligning", "orbiting", "landed"):
+    def test_assemble_rejects_non_framed_status(self, tmp_project_root, tmp_data_dir):
+        """Assemble must reject opportunities not in 'framed' status."""
+        for status in ("aligning", "assembled", "orbiting", "decided"):
             opp_id = self._make_open_workspace(
                 tmp_data_dir,
                 opp_id=f"opp-reject-{status}",
                 status=status,
             )
             bridge = CliBridge(tmp_project_root)
-            with pytest.raises(ValueError, match="assembled"):
+            with pytest.raises(ValueError, match="framed"):
                 bridge.generate_assemble_command(opp_id)
 
     def test_assemble_rejects_existing_roster(self, tmp_project_root, tmp_data_dir):
@@ -590,7 +590,7 @@ class TestCliBridge:
     # --- Dot-vote command generation ---
 
     def _make_synthesized_workspace(self, tmp_data_dir, opp_id="opp-20260412-170000", **overrides):
-        """Helper: create a workspace with status=converging and a roster."""
+        """Helper: create a workspace with status=orbiting and a roster."""
         import json
         ws = tmp_data_dir / "workspaces" / opp_id
         ws.mkdir(parents=True, exist_ok=True)
@@ -606,7 +606,7 @@ class TestCliBridge:
             ],
             "success_signals": ["Conversion > 5%"],
             "kill_signals": ["No engagement"],
-            "status": "converging",
+            "status": "orbiting",
             "roster": [
                 {"function": "product", "rationale": "Orchestrator", "investigation_tracks": [{"track": "framing", "question": "What is core question?", "expected_artifacts": ["product.md"]}], "tool_access": ["google-drive"]},
                 {"function": "data", "rationale": "Baselines", "investigation_tracks": [{"track": "baselines", "question": "What are metrics?", "expected_artifacts": ["data.md"]}], "tool_access": ["google-sheets"]},

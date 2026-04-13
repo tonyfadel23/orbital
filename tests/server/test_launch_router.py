@@ -23,6 +23,42 @@ class TestLaunchRouter:
             mock_parallel.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_start_with_roster_sets_orbiting(self, client, app, tmp_data_dir):
+        """POST /api/launch/{opp_id}/start sets status to 'orbiting' when launching parallel."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-assembled-launch"
+        ws_dir.mkdir(parents=True)
+        for d in ("contributions", "reviews", "artifacts"):
+            (ws_dir / d).mkdir()
+        opp = {
+            "id": "opp-assembled-launch",
+            "type": "hypothesis",
+            "title": "Assembled test",
+            "description": "Ready to orbit",
+            "context_refs": [],
+            "assumptions": [],
+            "success_signals": [],
+            "kill_signals": [],
+            "status": "assembled",
+            "roster": [
+                {"function": "product", "rationale": "test", "investigation_tracks": [{"track": "t", "question": "Q?", "expected_artifacts": []}], "tool_access": []},
+                {"function": "data", "rationale": "test", "investigation_tracks": [{"track": "t", "question": "Q?", "expected_artifacts": []}], "tool_access": []},
+            ],
+            "decision": None,
+            "created_at": "2026-04-12T00:00:00Z",
+            "updated_at": "2026-04-12T00:00:00Z",
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp, indent=2))
+
+        launcher = app.state.launcher
+        with patch.object(launcher, "launch_staggered", return_value={"product": True, "data": True}):
+            resp = await client.post("/api/launch/opp-assembled-launch/start")
+            assert resp.status_code == 200
+
+        # Verify opportunity status was updated to orbiting
+        updated = json.loads((ws_dir / "opportunity.json").read_text())
+        assert updated["status"] == "orbiting"
+
+    @pytest.mark.asyncio
     async def test_start_without_roster_uses_single(self, client, app, tmp_data_dir):
         """POST /api/launch/{opp_id}/start uses single launch when no roster."""
         # Create a workspace without roster
@@ -36,7 +72,7 @@ class TestLaunchRouter:
             "type": "signal",
             "title": "No roster test",
             "description": "Testing without roster",
-            "status": "confirmed",
+            "status": "framed",
             "roster": None,
             "created_at": "2026-04-12T00:00:00Z",
             "updated_at": "2026-04-12T00:00:00Z",
@@ -122,8 +158,8 @@ class TestLaunchRouter:
     # --- /assemble endpoint ---
 
     @pytest.mark.asyncio
-    async def test_assemble_launches_for_assembled_opportunity(self, client, app, tmp_data_dir):
-        """POST /api/launch/{opp_id}/assemble launches for an assembled opportunity."""
+    async def test_assemble_launches_for_framed_opportunity(self, client, app, tmp_data_dir):
+        """POST /api/launch/{opp_id}/assemble launches for a framed opportunity."""
         ws_dir = tmp_data_dir / "workspaces" / "opp-open-assemble"
         ws_dir.mkdir(parents=True)
         for d in ("contributions", "reviews", "artifacts"):
@@ -135,7 +171,7 @@ class TestLaunchRouter:
             "context_refs": ["L1-global"],
             "assumptions": [{"id": "asm-001", "content": "test", "status": "untested", "importance": "critical"}],
             "success_signals": ["X"], "kill_signals": ["Y"],
-            "status": "assembled", "roster": None, "decision": None,
+            "status": "framed", "roster": None, "decision": None,
             "created_at": "2026-04-12T16:00:00Z",
             "updated_at": "2026-04-12T16:00:00Z",
         }
@@ -178,7 +214,7 @@ class TestLaunchRouter:
         opp = {
             "id": "opp-rostered", "type": "hypothesis",
             "title": "Already has roster", "description": "Done",
-            "status": "assembled",
+            "status": "framed",
             "roster": [{"function": "product", "rationale": "test", "investigation_tracks": [], "tool_access": []}],
             "created_at": "2026-04-12T16:00:00Z",
             "updated_at": "2026-04-12T16:00:00Z",
@@ -208,7 +244,7 @@ class TestLaunchRouter:
             "title": "Dot vote test", "description": "Testing",
             "context_refs": [], "assumptions": [],
             "success_signals": [], "kill_signals": [],
-            "status": "converging",
+            "status": "orbiting",
             "roster": [
                 {"function": "product", "rationale": "test", "investigation_tracks": [{"track": "t", "question": "What is it?", "expected_artifacts": []}], "tool_access": []},
                 {"function": "data", "rationale": "test", "investigation_tracks": [{"track": "t", "question": "What is it?", "expected_artifacts": []}], "tool_access": []},

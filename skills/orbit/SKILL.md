@@ -29,8 +29,8 @@ Run a parallel AI agent investigation of a product opportunity (Phases 2-5).
 
 Run these skills first (or provide a workspace with equivalent state):
 
-1. **`/agree`** — Frame the opportunity: title, type, description, assumptions, success/kill signals, context refs. Status → `"assembled"`.
-2. **`/assemble`** — Assemble the team: roster with per-agent investigation tracks, tool access, rationale. Status → `"orbiting"`.
+1. **`/agree`** — Frame the opportunity: title, type, description, assumptions, success/kill signals, context refs. Status → `"framed"`.
+2. **`/assemble`** — Assemble the team: roster with per-agent investigation tracks, tool access, rationale. Status → `"assembled"`. Server sets `"orbiting"` on launch.
 
 **Input contract** — `opportunity.json` must have:
 - `status: "orbiting"`

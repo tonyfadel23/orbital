@@ -1198,7 +1198,7 @@ html, body {
 .orb-split {
   display: grid;
   grid-template-columns: 1fr 460px;
-  height: calc(100vh - 60px);
+  height: 100%;
   overflow: hidden;
 }
 .orb-left {

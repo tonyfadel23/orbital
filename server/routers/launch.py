@@ -49,7 +49,9 @@ def launch_start(opp_id: str, request: Request):
     # Check if opportunity has a roster — if so, use parallel launch
     try:
         fn_cmds = bridge.generate_function_commands(opp_id)
-        # Has roster — parallel Phase 2
+        # Has roster — parallel Phase 2: server owns assembled → orbiting transition
+        workspace_svc = request.app.state.workspace_svc
+        workspace_svc.update_opportunity(opp_id, {"status": "orbiting"})
         results = launcher.launch_staggered(opp_id, fn_cmds)
         all_launched = all(results.values())
         return {

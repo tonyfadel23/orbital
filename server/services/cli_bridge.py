@@ -146,10 +146,10 @@ class CliBridge:
         opp = json.loads(opp_path.read_text())
         status = opp.get("status", "unknown")
 
-        if status != "assembled":
+        if status != "framed":
             raise ValueError(
                 f"Opportunity {opp_id} has status '{status}' — "
-                "must be 'assembled' to assemble a roster."
+                "must be 'framed' to assemble a roster."
             )
 
         roster = opp.get("roster")
@@ -203,7 +203,7 @@ class CliBridge:
             f"- Update {ws_path}/opportunity.json with the revised roster draft "
             f"BEFORE producing your response.\n"
             f"- Present updated roster with changes highlighted\n"
-            f"- When user confirms: set status to 'orbiting', append roster_confirmed "
+            f"- When user confirms: set status to 'assembled', append roster_confirmed "
             f"to refinement_history, print summary with agent count and track count\n\n"
             f"CRITICAL: You MUST use the Write tool to update opportunity.json on EVERY turn. "
             f"Do NOT skip the file write."

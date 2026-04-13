@@ -21,7 +21,7 @@ Refine a vague product idea into a framed investigation opportunity through a mu
 
 ## Prerequisites
 - A workspace created via `POST /api/workspaces` with at least a title
-- Opportunity status must be `"aligning"` or `"assembled"`
+- Opportunity status must be `"aligning"` or `"framed"`
 
 ## Flow
 
@@ -68,7 +68,7 @@ If any are missing or vague, ask before proceeding. One question per gap.
 ### Exit — Framing Complete (3-5 turns)
 When the framing is solid:
 - `opportunity.json` has: clear HMW title, typed opportunity, populated assumptions (3-5), success signals, kill signals, context refs
-- Status remains `"assembled"` (set during workspace creation or first confirm)
+- Status set to `"framed"`
 - Recommend: "Framing is solid. Run `/assemble` to set up the investigation team."
 
 ## What This Skill Does NOT Do
