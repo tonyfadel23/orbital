@@ -25,6 +25,15 @@ Refine a vague product idea into a framed investigation opportunity through a mu
 
 ## Flow
 
+### Step 0 — Scope Check
+Before drafting, confirm these four dimensions with the user. Do not assume broad framing.
+1. **Target segment** — new users, current users, or a specific cohort
+2. **Geographic scope** — UAE only, multi-market, or specific country
+3. **Investigation type** — discovery (what's the opportunity?) vs optimization (how do we improve X?)
+4. **Key metric** — the specific conversion point (e.g., add-to-cart rate, not "engagement")
+
+If any are missing or vague, ask before proceeding. One question per gap.
+
 ### Turn 1 — Context & Framing
 1. Read `{workspace}/opportunity.json`
 2. Load context layers from `data/context/`:

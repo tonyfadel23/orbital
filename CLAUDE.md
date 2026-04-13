@@ -3,6 +3,12 @@
 ## What This Is
 Orbital is a decision operating system that runs synthetic GV Design Sprints using Claude Code agent teams. Parallel AI agents investigate product opportunities from different functional perspectives, produce a portfolio of distinct solutions, score them via dot-voting, and package everything into a decision brief for leadership.
 
+## Investigation Workflow
+- **Framing first**: every opportunity must have a target segment, geo scope, investigation type (discovery/optimization), and specific metric before drafting. See `/agree` skill Step 0.
+- **Read before acting**: read ALL agent definitions (`.claude/agents/*.md`) and confirm before the user has to ask.
+- **Skills are in `skills/*/SKILL.md`** — check there before attempting to run any skill command.
+- **File writes are mandatory**: `/agree` and `/assemble` must update `opportunity.json` on every turn, including the first. Verify the write landed.
+
 ## Development Rules
 
 ### TDD — No Exceptions
