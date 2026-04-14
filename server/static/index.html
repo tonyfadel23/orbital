@@ -1279,6 +1279,14 @@ function renderAgreeCards(el, opp_id, opp) {
   const full = renderPreviewCards(opp, catalog, loadedContext);
   el.innerHTML = full;
 
+  // Wire up mini problem graph canvas if present
+  requestAnimationFrame(() => {
+    const pgCanvas = document.getElementById(`problem-graph-${opp.id || 'default'}`);
+    if (pgCanvas && typeof renderProblemGraph === 'function') {
+      renderProblemGraph(pgCanvas, opp, loadedContext);
+    }
+  });
+
   // Remove the Roster card from DOM
   const cards = el.querySelectorAll('.setup-card');
   cards.forEach(card => {
@@ -3096,19 +3104,8 @@ function renderPreviewCards(opp, catalog, loadedContext) {
   const successHtml = renderSignalSection('Success Signals', opp.success_signals, 'var(--color-accent)', true, 'success_signal');
   const killHtml = renderSignalSection('Kill Signals', opp.kill_signals, 'var(--color-counter)', true, 'kill_signal');
 
-  // Context card — only show what agent has loaded
-  let contextHtml = '';
-  if (loadedContext.length === 0) {
-    contextHtml = '<div class="muted-hint">Agent will load relevant context...</div>';
-  } else {
-    contextHtml = loadedContext.map(c => {
-      return `<div class="setup-ctx-layer clickable" onclick="openContextSlideOver('${esc(c.layerType)}','${esc(c.name)}')">
-        <span class="sufficiency-dot sufficient"></span>
-        <span>${esc(c.layerType)}/${esc(c.name)}</span>
-        <span class="text-muted gap-ctx-chevron">&rsaquo;</span>
-      </div>`;
-    }).join('');
-  }
+  // Context card — extracted facts + sources
+  const contextHtml = renderContextCard(opp, loadedContext);
 
   // Roster card
   const roster = opp.roster || [];
@@ -3167,7 +3164,7 @@ function renderPreviewCards(opp, catalog, loadedContext) {
       <div class="setup-card-body">${successHtml}${killHtml}</div>
     </div>` : ''}
     <div class="setup-card">
-      <div class="setup-card-title">Context${loadedContext.length ? ` (${loadedContext.length})` : ''}</div>
+      <div class="setup-card-title">Context${(opp.extracted_context||[]).length ? ` (${(opp.extracted_context||[]).length} facts)` : loadedContext.length ? ` (${loadedContext.length} sources)` : ''}</div>
       <div class="setup-card-body">${contextHtml}</div>
     </div>
     <div class="setup-card">
@@ -3180,6 +3177,100 @@ function renderPreviewCards(opp, catalog, loadedContext) {
         <div class="setup-connectors">${connectorsHtml}</div>
       </div>
     </div>`;
+}
+
+function renderContextCard(opp, loadedContext) {
+  const extracted = opp.extracted_context || [];
+
+  // State: nothing loaded yet
+  if (loadedContext.length === 0 && extracted.length === 0) {
+    return '<div class="muted-hint">Agent will load relevant context...</div>';
+  }
+
+  // State: agent reading files but hasn't extracted yet
+  if (loadedContext.length > 0 && extracted.length === 0) {
+    return `<div class="muted-hint">Reading context layers...</div>
+      <div class="ctx-card-sources">${loadedContext.map(c =>
+        `<span class="ctx-card-source-chip">${esc(c.layerType)}/${esc(c.name)}</span>`
+      ).join('')}</div>`;
+  }
+
+  // State: extracted facts available — show them grouped by category
+  const categoryLabels = {
+    metric: 'Key Metrics',
+    persona: 'Personas',
+    competitor: 'Competitors',
+    goal: 'Goals',
+    strategy: 'Strategy',
+    market_signal: 'Market Signals'
+  };
+  const categoryIcons = {
+    metric: '&#x25C8;',      // diamond
+    persona: '&#x25CB;',     // circle
+    competitor: '&#x25A0;',  // square
+    goal: '&#x25B3;',        // triangle
+    strategy: '&#x2605;',    // star
+    market_signal: '&#x25CF;' // filled circle
+  };
+
+  // Group by category
+  const groups = {};
+  extracted.forEach(item => {
+    const cat = item.category || 'metric';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  let html = '';
+  const MAX_VISIBLE = 3;
+
+  for (const [cat, items] of Object.entries(groups)) {
+    const label = categoryLabels[cat] || cat;
+    const icon = categoryIcons[cat] || '&#x25CF;';
+    const visible = items.slice(0, MAX_VISIBLE);
+    const hidden = items.length - MAX_VISIBLE;
+    const groupId = `ctx-group-${cat}`;
+
+    html += `<div class="ctx-card-section">
+      <div class="ctx-card-section__title">${icon} ${label}</div>
+      ${visible.map(item => renderContextFact(item)).join('')}
+      ${hidden > 0 ? `<div class="ctx-card-overflow" id="${groupId}-overflow" style="display:none">
+        ${items.slice(MAX_VISIBLE).map(item => renderContextFact(item)).join('')}
+      </div>
+      <div class="ctx-card-more" onclick="toggleCtxGroup('${groupId}')">+ ${hidden} more</div>` : ''}
+    </div>`;
+  }
+
+  // Source layers footer
+  html += `<div class="ctx-card-sources">${loadedContext.map(c =>
+    `<span class="ctx-card-source-chip clickable" onclick="openContextSlideOver('${esc(c.layerType)}','${esc(c.name)}')">${esc(c.layerType)}/${esc(c.name)}</span>`
+  ).join('')}</div>`;
+
+  // Mini problem graph placeholder (Task 11 will add the canvas here)
+  const hasGraphContent = (opp.assumptions||[]).length > 0 || loadedContext.length > 0;
+  if (extracted.length > 0 && hasGraphContent) {
+    html += `<canvas class="problem-graph-canvas" id="problem-graph-${opp.id || 'default'}"></canvas>`;
+  }
+
+  return html;
+}
+
+function renderContextFact(item) {
+  const valueHtml = item.value ? `<span class="ctx-card-fact__value">${esc(item.value)}</span>` : '';
+  const sourceHtml = `<span class="ctx-card-fact__source">${esc(item.source_layer || '')}</span>`;
+  return `<div class="ctx-card-fact" title="${esc(item.relevance || '')}">
+    <div class="ctx-card-fact__text">${esc(item.fact)}${valueHtml}</div>
+    ${sourceHtml}
+  </div>`;
+}
+
+function toggleCtxGroup(groupId) {
+  const el = document.getElementById(groupId + '-overflow');
+  const toggle = el?.nextElementSibling;
+  if (!el) return;
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  if (toggle) toggle.textContent = show ? '- collapse' : `+ ${el.children.length} more`;
 }
 
 function sufficiencyDot(suf) {
