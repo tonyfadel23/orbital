@@ -110,8 +110,8 @@ class TestLaunchRouter:
         assert "data" in data["function_outputs"]
 
     @pytest.mark.asyncio
-    async def test_start_aligning_returns_400(self, client, app, tmp_data_dir):
-        """POST /api/launch/{opp_id}/start returns 400 for aligning status."""
+    async def test_start_aligning_with_roster_returns_400(self, client, app, tmp_data_dir):
+        """POST /api/launch/{opp_id}/start returns 400 for aligning status with roster (Phase 2)."""
         ws_dir = tmp_data_dir / "workspaces" / "opp-draft"
         ws_dir.mkdir(parents=True)
         (ws_dir / "contributions").mkdir()
@@ -123,13 +123,38 @@ class TestLaunchRouter:
             "title": "Draft test",
             "description": "Still drafting",
             "status": "aligning",
-            "roster": None,
+            "roster": [
+                {"function": "product", "rationale": "test", "investigation_tracks": [], "tool_access": []},
+            ],
             "created_at": "2026-04-12T00:00:00Z",
             "updated_at": "2026-04-12T00:00:00Z",
         }
         (ws_dir / "opportunity.json").write_text(json.dumps(opp, indent=2))
         resp = await client.post("/api/launch/opp-draft/start")
         assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_start_aligning_no_roster_launches_phase0(self, client, app, tmp_data_dir):
+        """POST /api/launch/{opp_id}/start succeeds for aligning status without roster (Phase 0)."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-draft-p0"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "contributions").mkdir()
+        (ws_dir / "reviews").mkdir()
+        (ws_dir / "artifacts").mkdir()
+        opp = {
+            "id": "opp-draft-p0",
+            "type": "hypothesis",
+            "title": "New opportunity",
+            "description": "Just created, needs Phase 0 refinement",
+            "status": "aligning",
+            "roster": None,
+            "created_at": "2026-04-14T08:00:00Z",
+            "updated_at": "2026-04-14T08:00:00Z",
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp, indent=2))
+        resp = await client.post("/api/launch/opp-draft-p0/start")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "launched"
 
     @pytest.mark.asyncio
     async def test_status_returns_latest_output_after_resume(self, client, app):

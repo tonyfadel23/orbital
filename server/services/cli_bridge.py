@@ -18,14 +18,14 @@ class CliBridge:
         opp = json.loads(opp_path.read_text())
         status = opp.get("status", "unknown")
 
-        if status == "aligning":
+        roster = opp.get("roster")
+        has_roster = roster is not None and len(roster) > 0
+
+        if status == "aligning" and has_roster:
             raise ValueError(
                 f"Opportunity {opp_id} is still in aligning status. "
                 "Confirm the opportunity before launching."
             )
-
-        roster = opp.get("roster")
-        has_roster = roster is not None and len(roster) > 0
         title = opp.get("title", opp_id)
         enabled_tools = opp.get("enabled_tools", [])
         ws_path = f"data/workspaces/{opp_id}"
@@ -232,11 +232,18 @@ class CliBridge:
             raise FileNotFoundError(f"Workspace {opp_id} not found")
 
         opp = json.loads(opp_path.read_text())
+        status = opp.get("status", "unknown")
         roster = opp.get("roster")
         if not roster or len(roster) == 0:
             raise ValueError(
                 f"Opportunity {opp_id} has no roster. "
                 "Cannot generate function commands without a roster."
+            )
+
+        if status == "aligning":
+            raise ValueError(
+                f"Opportunity {opp_id} is still in aligning status. "
+                "Confirm the opportunity before launching Phase 2."
             )
 
         title = opp.get("title", opp_id)
@@ -248,7 +255,8 @@ class CliBridge:
         ws_path = f"data/workspaces/{opp_id}"
 
         assumptions_text = "\n".join(
-            f"- [{a.get('id','')}] {a.get('content','')}"
+            f"- {a}" if isinstance(a, str)
+            else f"- [{a.get('id','')}] {a.get('content','')}"
             for a in assumptions
         )
         success_text = "\n".join(f"- {s}" for s in success_signals)

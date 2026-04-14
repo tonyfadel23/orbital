@@ -30,10 +30,15 @@ Recommend, configure, and lock the agent roster for an Orbital investigation.
 1. Read `{workspace}/opportunity.json` — validate status = `"framed"`, roster = `null`
 2. Read `data/config.json`:
    - `roster_templates` — core, market_entry, technical_deep_dive, full_spectrum
-   - `available_agents` — all agents with display names, roles, default tool access
+   - `available_agents` — all agents with display names, roles, domains, default tool access
    - `tool_registry` — all available tools with MCP servers and capabilities
-3. Read `.claude/agents/*.md` — skim Role and Investigation Tracks sections for candidate agents
-4. Read context layers from `data/context/` (per `context_refs` on the opportunity)
+3. **Select agents from config** (do NOT read .md files yet):
+   a. Match opportunity type/domain to a `roster_template`
+   b. Include any agents with `always_included: true` (product)
+   c. Review `role` and `domains` in `available_agents` to add/remove agents based on opportunity specifics
+   d. Result: a shortlist of 3-5 agent function names
+4. **Read only selected agent definitions** — `.claude/agents/{function}.md` for ONLY the shortlisted agents. Use full definitions to design investigation tracks, determine artifact expectations, and refine tool access.
+5. Read context layers from `data/context/` (per `context_refs` on the opportunity)
 
 Present to the user:
 

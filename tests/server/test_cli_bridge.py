@@ -13,9 +13,9 @@ class TestCliBridge:
         assert "opp-20260405-120000" in cmd
         assert "/orbit" in cmd.lower() or "orbit" in cmd.lower()
 
-    def test_generate_command_aligning_raises(self, tmp_project_root, tmp_data_dir):
+    def test_generate_command_aligning_with_roster_raises(self, tmp_project_root, tmp_data_dir):
+        """Phase 2 (with roster) must NOT launch from aligning status."""
         import json
-        # Create an aligning workspace
         ws = tmp_data_dir / "workspaces" / "opp-20260412-090000"
         ws.mkdir(parents=True)
         (ws / "contributions").mkdir()
@@ -28,12 +28,38 @@ class TestCliBridge:
             "context_refs": [], "assumptions": [],
             "success_signals": ["Something"], "kill_signals": ["Nothing"],
             "status": "aligning", "decision": None,
+            "roster": [
+                {"function": "product", "rationale": "test", "investigation_tracks": [], "tool_access": []},
+            ],
             "created_at": "2026-04-12T09:00:00Z", "updated_at": "2026-04-12T09:00:00Z"
         }
         (ws / "opportunity.json").write_text(json.dumps(opp))
         bridge = CliBridge(tmp_project_root)
         with pytest.raises(ValueError, match="aligning"):
             bridge.generate_command("opp-20260412-090000")
+
+    def test_generate_command_aligning_no_roster_phase0(self, tmp_project_root, tmp_data_dir):
+        """Phase 0 (no roster) MUST launch from aligning status — this is the normal flow."""
+        import json
+        ws = tmp_data_dir / "workspaces" / "opp-20260414-080000"
+        ws.mkdir(parents=True)
+        (ws / "contributions").mkdir()
+        (ws / "reviews").mkdir()
+        (ws / "artifacts").mkdir()
+        opp = {
+            "id": "opp-20260414-080000", "type": "hypothesis",
+            "title": "New opportunity just created",
+            "description": "Should launch Phase 0 from aligning",
+            "context_refs": [], "assumptions": [],
+            "success_signals": [], "kill_signals": [],
+            "status": "aligning", "roster": None, "decision": None,
+            "created_at": "2026-04-14T08:00:00Z", "updated_at": "2026-04-14T08:00:00Z"
+        }
+        (ws / "opportunity.json").write_text(json.dumps(opp))
+        bridge = CliBridge(tmp_project_root)
+        cmd = bridge.generate_command("opp-20260414-080000")
+        assert "product strategist" in cmd.lower()
+        assert "opp-20260414-080000" in cmd
 
     def test_generate_command_not_found(self, tmp_project_root):
         bridge = CliBridge(tmp_project_root)

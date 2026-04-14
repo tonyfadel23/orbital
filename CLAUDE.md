@@ -5,7 +5,7 @@ Orbital is a decision operating system that runs synthetic GV Design Sprints usi
 
 ## Investigation Workflow
 - **Framing first**: every opportunity must have a target segment, geo scope, investigation type (discovery/optimization), and specific metric before drafting. See `/agree` skill Step 0.
-- **Read before acting**: read ALL agent definitions (`.claude/agents/*.md`) and confirm before the user has to ask.
+- **Read before acting**: read `data/config.json` for agent metadata, then read only the selected agents' `.md` files — never read all 14 agent definitions.
 - **Skills are in `skills/*/SKILL.md`** — check there before attempting to run any skill command.
 - **File writes are mandatory**: `/agree` and `/assemble` must update `opportunity.json` on every turn, including the first. Verify the write landed.
 
@@ -37,6 +37,7 @@ Orbital is a decision operating system that runs synthetic GV Design Sprints usi
 - Never modify schemas without updating tests first
 
 ### Agent Development
+- **Two-pass selection**: select agents from `config.json` metadata (`role`, `domains`, `always_included`), then read full `.claude/agents/{function}.md` only for shortlisted agents. Never read all agent files — use the registry.
 - Each agent definition specifies: Role, Tool Access, Investigation Tracks, Artifacts Produced, Output Format, Self-Review Protocol, Peer Review Behavior, Dot-Vote Behavior, Anti-Patterns
 - Agents write structured JSON contributions AND markdown artifacts
 - JSON contributions follow `schemas/contribution.schema.json`

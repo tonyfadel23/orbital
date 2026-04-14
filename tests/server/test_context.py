@@ -331,6 +331,36 @@ class TestContextReaderGet:
         assert len(suf.get("gaps", [])) > 0
 
 
+class TestContextReaderFallbackResolution:
+    """_resolve_path must handle raw directory names from agent tool-call detection.
+
+    The frontend detects context reads like 'groceries/_context.md' from agent
+    output and passes raw directory names (e.g. 'groceries', '_company', 'uae')
+    as layer_type to GET /api/context/{layerType}/{name}. The resolver must
+    handle these in addition to the canonical types (company, bl, country).
+    """
+
+    def test_underscore_company_resolves(self, product_lines):
+        reader = MarkdownContextReader(product_lines)
+        layer = reader.get_layer("_company", "_context")
+        assert layer is not None
+        assert layer["type"] == "global"
+
+    def test_raw_bl_name_resolves(self, product_lines):
+        reader = MarkdownContextReader(product_lines)
+        layer = reader.get_layer("groceries", "_context")
+        assert layer is not None
+
+    def test_raw_country_name_resolves(self, product_lines):
+        reader = MarkdownContextReader(product_lines)
+        layer = reader.get_layer("uae", "_context")
+        assert layer is not None
+
+    def test_nonexistent_raw_name_returns_none(self, product_lines):
+        reader = MarkdownContextReader(product_lines)
+        assert reader.get_layer("nonexistent", "_context") is None
+
+
 class TestContextReaderParsing:
     def test_parse_markdown_table(self, product_lines):
         reader = MarkdownContextReader(product_lines)

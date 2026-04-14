@@ -1043,9 +1043,27 @@ async function renderOrb(el, params) {
   if (opp_id) {
     try {
       const ws = await api.get(`workspaces/${opp_id}`);
+      if (!ws) {
+        el.innerHTML = `<div class="empty-state">
+          <div class="empty-text">Could not load workspace</div>
+          <p style="color:var(--text-muted);margin:8px 0 16px">The workspace may have been deleted or the server is unreachable.</p>
+          <a href="#" onclick="navigate('orb',{opp_id:'${opp_id}'});return false" class="btn btn--sm">Retry</a>
+          <a href="#" onclick="navigate('dashboard');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
+        </div>`;
+        return;
+      }
       opp = ws?.opportunity || {};
       state.currentOpp = opp;
-    } catch (err) { console.warn('Failed to load opportunity:', err); }
+    } catch (err) {
+      console.warn('Failed to load opportunity:', err);
+      el.innerHTML = `<div class="empty-state">
+        <div class="empty-text">Could not load workspace</div>
+        <p style="color:var(--text-muted);margin:8px 0 16px">${err.message || 'Network error'}</p>
+        <a href="#" onclick="navigate('orb',{opp_id:'${opp_id}'});return false" class="btn btn--sm">Retry</a>
+        <a href="#" onclick="navigate('dashboard');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
+      </div>`;
+      return;
+    }
   }
 
   // Determine if this is an edit of an existing opportunity
@@ -1373,13 +1391,18 @@ function renderAssembleCards(el, opp_id, opp) {
     for (const [key, agent] of unselected) {
       const color = agentColor(key);
       html += `
-        <div class="agent-card" style="opacity:0.4" data-fn="${esc(key)}">
+        <div class="agent-card" data-fn="${esc(key)}" data-available="true" onclick="openAgentDetail(this, event)">
           <div class="agent-card__accent" style="background:${color}"></div>
           <div class="agent-card__header">
             <div class="agent-card__icon" style="background:${color}">${agentIcon(key, color)}</div>
             <div class="agent-card__info">
-              <div class="agent-card__title" style="color:var(--text-muted)">${esc(agent.display_name || humanizeFunction(key))}</div>
-              <div class="agent-card__track-count" style="color:var(--text-muted)">${esc(agent.role || 'Not assigned')}</div>
+              <div class="agent-card__title">${esc(agent.display_name || humanizeFunction(key))}</div>
+              <div class="agent-card__track-count">${esc(agent.role || 'Not assigned')}</div>
+            </div>
+            <div class="agent-card__actions">
+              <div class="agent-toggle" onclick="toggleAvailableAgent(event, '${esc(key)}')">
+                <div class="agent-toggle__knob"></div>
+              </div>
             </div>
           </div>
         </div>`;
@@ -1413,15 +1436,47 @@ function renderAssembleCards(el, opp_id, opp) {
 function openAgentDetail(card, event) {
   if (event.target.closest('.agent-toggle')) return;
   const fn = card.dataset.fn;
+  const isAvailable = card.dataset.available === 'true';
   const roster = state._assembleRoster || [];
   const entry = roster.find(r => rosterFn(r) === fn);
-  if (!entry) return;
 
   // Highlight active card
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
   card.classList.add('active');
 
   const color = agentColor(fn);
+
+  if (isAvailable && !entry) {
+    // Available agent — show info from config
+    const agent = (state._availableAgents || {})[fn] || {};
+    const selected = (state._selectedAvailable || new Set()).has(fn);
+    let html = `
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+        <div class="agent-card__icon" style="background:${color};width:48px;height:48px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:var(--text-base)">${agentIcon(fn, color)}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:var(--text-md);color:var(--text-primary);text-transform:capitalize">${esc(agent.display_name || humanizeFunction(fn))}</div>
+          <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:2px">Available</div>
+        </div>
+        <div class="agent-toggle${selected ? ' on' : ''}" onclick="toggleAvailableAgent(event, '${esc(fn)}')" style="flex-shrink:0">
+          <div class="agent-toggle__knob"></div>
+        </div>
+      </div>`;
+
+    if (agent.role) {
+      html += `<div style="font-size:var(--text-xs);font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Role</div>`;
+      html += `<div style="font-size:var(--text-sm);color:var(--text-primary);margin-bottom:16px;line-height:1.5">${esc(agent.role)}</div>`;
+    }
+    if (agent.domains && agent.domains.length) {
+      html += `<div style="font-size:var(--text-xs);font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Domains</div>`;
+      html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">${agent.domains.map(d => `<span class="agent-card__artifact-tag">${esc(d)}</span>`).join('')}</div>`;
+    }
+
+    openSlideOver(agent.display_name || humanizeFunction(fn), html);
+    return;
+  }
+
+  if (!entry) return;
+
   const tracks = entry.investigation_tracks || [];
   const excluded = state._excludedAgents.has(fn);
 
@@ -1478,6 +1533,20 @@ function toggleAgentInclude(event, fn) {
   if (summary) {
     summary.querySelector('.roster-summary__count').textContent = `${included.length} agent${included.length !== 1 ? 's' : ''} ready`;
     summary.querySelector('.roster-summary__tracks').textContent = `${totalTracks} track${totalTracks !== 1 ? 's' : ''}`;
+  }
+}
+
+function toggleAvailableAgent(event, fn) {
+  event.stopPropagation();
+  state._selectedAvailable = state._selectedAvailable || new Set();
+  const toggle = event.currentTarget;
+  const card = toggle.closest('.agent-card');
+  if (state._selectedAvailable.has(fn)) {
+    state._selectedAvailable.delete(fn);
+    toggle.classList.remove('on');
+  } else {
+    state._selectedAvailable.add(fn);
+    toggle.classList.add('on');
   }
 }
 
@@ -1583,6 +1652,48 @@ async function transitionToPhase(newPhase, opp_id) {
   if (leftChanges) left.classList.remove('phase-enter');
 }
 
+// ── Connection banner ─────────────────────────────────────────
+function showConnectionBanner(message, type) {
+  let banner = document.getElementById('connection-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'connection-banner';
+    banner.className = 'connection-banner';
+    const feed = document.getElementById('setup-feed') || document.getElementById('inv-left');
+    if (feed) feed.parentElement.insertBefore(banner, feed);
+    else return;
+  }
+  banner.className = `connection-banner connection-banner--${type || 'warning'}`;
+  banner.innerHTML = `<span>${message}</span> <a href="#" onclick="forceReconnect();return false" class="connection-banner__link">Reconnect now</a>`;
+  banner.style.display = 'flex';
+}
+
+function hideConnectionBanner() {
+  const banner = document.getElementById('connection-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+function forceReconnect() {
+  hideConnectionBanner();
+  const opp_id = state.setupOppId;
+  if (!opp_id) return;
+  // Reset and reconnect setup WS
+  if (state._setupWs) { try { state._setupWs.close(); } catch {} }
+  state._setupWs = null;
+  connectOrbWS(opp_id);
+  // Reset and reconnect live WS
+  if (state._wsContext) {
+    if (state.ws) { try { state.ws.close(); } catch {} }
+    state.ws = null;
+    const ctx = state._wsContext;
+    connectLiveWebSocket(ctx.opp_id, ctx.sim, ctx.nodeMap, ctx.renderer, ctx.ws);
+  }
+  // Restart polling
+  if (state._setupPoll) clearInterval(state._setupPoll);
+  state._pollErrorCount = 0;
+  pollSetupAgent(opp_id);
+}
+
 function connectOrbWS(opp_id) {
   // Close existing connection if any
   if (state._setupWs && state._setupWs.readyState <= 1) {
@@ -1592,7 +1703,6 @@ function connectOrbWS(opp_id) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   let opened = false;
   let retries = 0;
-  const MAX_RETRIES = 5;
   let socket;
   try { socket = new WebSocket(`${proto}//${location.host}/ws/workspace/${opp_id}`); }
   catch { return; } // WS not supported
@@ -1606,28 +1716,31 @@ function connectOrbWS(opp_id) {
     retries = 0;
     const b = document.getElementById('ws-status');
     if (b) b.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
+    hideConnectionBanner();
   };
 
   socket.onmessage = async (e) => {
     try {
       const event = JSON.parse(e.data);
+      if (event.event === 'ping' || event.event === 'connected') return; // heartbeat/handshake — don't render
       if (event.type === 'opportunity' || event.type === 'contribution' || event.type === 'artifact') {
         await updateOrbPreview(opp_id);
       }
     } catch (err) { /* ignore parse errors */ }
   };
 
-  socket.onerror = () => {};
+  socket.onerror = (err) => { console.warn('Setup WS error:', err); };
 
   socket.onclose = () => {
     state._setupWs = null;
     const b = document.getElementById('ws-status');
 
-    // Auto-reconnect if we're still on this workspace
-    if (state.setupOppId === opp_id && retries < MAX_RETRIES) {
+    // Auto-reconnect indefinitely while still on this workspace
+    if (state.setupOppId === opp_id) {
       retries++;
-      const delay = Math.min(1000 * Math.pow(2, retries - 1), 10000);
+      const delay = Math.min(1000 * Math.pow(2, retries - 1), 30000);
       if (b) b.innerHTML = '<span class="status-dot" style="background:var(--color-amber)"></span> reconnecting... <span class="ws-chevron">▾</span>';
+      if (retries >= 3) showConnectionBanner('Connection lost. Reconnecting...', 'warning');
       setTimeout(() => {
         if (state.setupOppId === opp_id) connectOrbWS(opp_id);
       }, delay);
@@ -1718,10 +1831,7 @@ async function handleFirstMessage(text) {
       history.replaceState(null, '', `#orb/${opp.id}`);
     }
 
-    // Set status to assembled (required for launch)
-    await api.patch(`workspaces/${opp.id}/opportunity`, { status: 'assembled' });
-
-    // Launch Phase 0 agent
+    // Launch Phase 0 agent (aligning status is fine — cli_bridge allows it for Phase 0)
     await api.post(`launch/${opp.id}/start`, {});
 
     // Connect WebSocket for live workspace updates
@@ -2005,8 +2115,17 @@ function pollSetupAgent(opp_id) {
     try {
       const s = await api.get(`launch/${opp_id}/status?full=true`);
       if (!document.getElementById('setup-feed')) { clearInterval(state._setupPoll); return; }
+      // Reset error count on successful poll
+      if (state._pollErrorCount) { state._pollErrorCount = 0; hideConnectionBanner(); }
 
       if (s.output?.length) {
+        if (s.output.length === state._setupOutputLen && state._setupState === 'running') {
+          state._noNewOutputCount = (state._noNewOutputCount || 0) + 1;
+          if (state._noNewOutputCount >= 60) state._isStale = true;
+        } else {
+          state._noNewOutputCount = 0;
+          state._isStale = false;
+        }
         updateSetupFeed(s.output);
         state._setupOutputLen = s.output.length;
       }
@@ -2058,7 +2177,13 @@ function pollSetupAgent(opp_id) {
       if (!s.running) updateSendButton(false);
       else updateSendButton(true);
       updateActivityIndicator();
-    } catch (err) { console.warn('pollSetupAgent network error:', err); }
+    } catch (err) {
+      console.warn('pollSetupAgent network error:', err);
+      state._pollErrorCount = (state._pollErrorCount || 0) + 1;
+      if (state._pollErrorCount >= 3) {
+        showConnectionBanner('API unreachable. Retrying...', 'error');
+      }
+    }
   }
   check();
   state._setupPoll = setInterval(check, 3000);
@@ -2135,13 +2260,16 @@ function updateSetupFeed(lines) {
   for (const m of messages) {
     // Detect context reads from tool calls
     if (m.isTool && m.label === 'read' && m.text) {
-      const ctxMatch = m.text.match(/^(L[12][ab]?)\/([^/\s]+)/) || m.text.match(/data\/context\/([^/]+)\/([^/\s]+)/);
+      // Match product_lines context: "groceries/_context.md", "_company/_context.md", "uae/_context.md"
+      const ctxMatch = m.text.match(/^([a-z_][a-z0-9_-]*)\/(_context\.md)$/i)
+        || m.text.match(/data\/context\/([^/]+)\/([^/\s]+)/);
       if (ctxMatch) {
         const layerType = ctxMatch[1];
         const fileName = ctxMatch[2];
-        const existing = state._loadedContext.find(c => c.fileName === fileName);
+        const name = fileName.replace(/\.(md|json)$/, '');
+        const existing = state._loadedContext.find(c => c.layerType === layerType && c.fileName === fileName);
         if (!existing) {
-          state._loadedContext.push({ layerType, fileName, name: fileName.replace('.json', '') });
+          state._loadedContext.push({ layerType, fileName, name });
           // Re-render preview to show new context layer
           if (state.setupOppId) {
             updateOrbPreview(state.setupOppId);
@@ -2359,7 +2487,7 @@ function openEvidenceModal(preselect) {
     if (!sources.length || !queryInput.value.trim()) return;
     const query = queryInput.value.trim();
     gatherBtn.disabled = true;
-    gatherBtn.textContent = 'Gathering...';
+    gatherBtn.textContent = 'Launching...';
 
     try {
       // Launch gather for all selected sources
@@ -2368,8 +2496,16 @@ function openEvidenceModal(preselect) {
       );
       await Promise.allSettled(promises);
 
-      // Switch modal to review mode — poll for results
-      showEvidenceReview(overlay, sources, query);
+      // Close modal immediately — gathering runs in background
+      overlay.remove();
+      state._evidenceResumed = false; // reset so auto-resume fires after this batch
+      toast(`Gathering from ${sources.length} source${sources.length > 1 ? 's' : ''} in the background...`);
+
+      // Add evidence cards to chat feed and start polling
+      for (const src of sources) {
+        addEvidenceCard(src, query);
+      }
+      startEvidencePolling();
     } catch (err) {
       gatherBtn.textContent = 'Failed — retry';
       gatherBtn.disabled = false;
@@ -2550,13 +2686,24 @@ async function pollEvidenceStatus() {
     if (!data.running) {
       stopEvidencePolling();
       // Mark all gathering cards as completed
-      document.querySelectorAll('.evidence-card-status.gathering').forEach(el => {
+      const gatheringCards = document.querySelectorAll('.evidence-card-status.gathering');
+      const completedSources = [];
+      gatheringCards.forEach(el => {
         el.className = 'evidence-card-status completed';
         el.textContent = 'Done';
+        const card = el.closest('.evidence-card');
+        if (card) {
+          const src = card.id.replace('evidence-card-', '');
+          if (src) completedSources.push(src);
+        }
       });
-      // Load evidence findings, then auto-continue the agent
+      // Load evidence findings then auto-open review panel
       await loadEvidenceFindings();
-      autoResumeAfterEvidence();
+      // Auto-open the first completed source for review
+      if (completedSources.length > 0) {
+        toast('Evidence ready — review findings');
+        openEvidenceDetail(completedSources[0]);
+      }
     }
   } catch (err) {
     console.warn('Evidence poll error:', err);
@@ -2762,6 +2909,8 @@ async function setEvidenceApproval(oppId, evidenceId, status, sourceType) {
     }
     // Refresh framing quality score
     if (state.setupOppId) loadFramingQuality(state.setupOppId);
+    // Auto-resume conversation after evidence review
+    autoResumeAfterEvidence();
   } catch (err) {
     console.warn('Evidence approval error:', err);
     toast('Failed to update approval: ' + err.message);
@@ -2843,7 +2992,10 @@ function autoResumeAfterEvidence() {
   if (!state.setupOppId) return;
   // Only auto-resume if the agree agent is waiting for input
   if (state._setupState !== 'waiting') return;
-  const msg = 'Evidence gathered. Please review the evidence files and continue refining the opportunity.';
+  // Don't resume if already resumed for this evidence batch
+  if (state._evidenceResumed) return;
+  state._evidenceResumed = true;
+  const msg = 'Evidence gathered and reviewed. Please review the evidence files and continue refining the opportunity.';
   const feed = document.getElementById('setup-feed');
   if (feed) {
     const div = document.createElement('div');
@@ -2897,7 +3049,9 @@ async function handleSetupApprove() {
 function renderPreviewCards(opp, catalog, loadedContext) {
   // Phase indicator
   const hasRoster = opp.roster && opp.roster.length > 0;
-  const phase = opp.status === 'orbiting' ? 'ready' : hasRoster ? 'assembling' : 'refining';
+  const phase = opp.status === 'orbiting' ? 'ready'
+    : opp.status === 'aligning' ? 'refining'
+    : hasRoster ? 'assembling' : 'refining';
   const phases = [
     { key: 'refining', label: 'Refining' },
     { key: 'assembling', label: 'Assembling' },
@@ -4211,13 +4365,15 @@ function connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws) {
 
   socket.onopen = () => {
     opened = true;
+    liveRetries = 0;
     if (badge) badge.innerHTML = '<span class="live-pulse"></span> live <span class="ws-chevron">▾</span>';
+    hideConnectionBanner();
   };
 
   socket.onmessage = async (e) => {
     try {
       const event = JSON.parse(e.data);
-      if (event.event === 'connected') return;
+      if (event.event === 'ping' || event.event === 'connected') return; // heartbeat/handshake
 
       // Add to live feed
       addLiveEvent(event);
@@ -4235,17 +4391,18 @@ function connectLiveWebSocket(opp_id, sim, nodeMap, renderer, ws) {
     } catch (err) { /* ignore parse errors */ }
   };
 
-  socket.onerror = () => {};
+  socket.onerror = (err) => { console.warn('Live WS error:', err); };
 
   let liveRetries = 0;
   socket.onclose = () => {
     const b = document.getElementById('ws-status');
 
-    // Auto-reconnect if still on this workspace
-    if (state.setupOppId === opp_id && state._wsContext && liveRetries < 5) {
+    // Auto-reconnect indefinitely while still on this workspace
+    if (state.setupOppId === opp_id && state._wsContext) {
       liveRetries++;
-      const delay = Math.min(1000 * Math.pow(2, liveRetries - 1), 10000);
+      const delay = Math.min(1000 * Math.pow(2, liveRetries - 1), 30000);
       if (b) b.innerHTML = '<span class="status-dot" style="background:var(--color-amber)"></span> reconnecting... <span class="ws-chevron">▾</span>';
+      if (liveRetries >= 3) showConnectionBanner('Connection lost. Reconnecting...', 'warning');
       setTimeout(() => {
         if (state.setupOppId === opp_id && state._wsContext) {
           const ctx = state._wsContext;
@@ -4892,6 +5049,31 @@ function routeFromHash() {
 }
 
 window.addEventListener('hashchange', routeFromHash);
+
+// ── Visibility change handler — reconnect on tab focus ────
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!state.setupOppId) return;
+  // Delay to avoid racing with browser's own reconnect
+  setTimeout(() => {
+    const opp_id = state.setupOppId;
+    if (!opp_id) return;
+    // Reconnect setup WS if dead
+    if (!state._setupWs || state._setupWs.readyState > 1) {
+      connectOrbWS(opp_id);
+    }
+    // Reconnect live WS if dead
+    if (state._wsContext && (!state.ws || state.ws.readyState > 1)) {
+      const ctx = state._wsContext;
+      connectLiveWebSocket(ctx.opp_id, ctx.sim, ctx.nodeMap, ctx.renderer, ctx.ws);
+    }
+    // Restart polling if it died
+    if (!state._setupPoll && (state._setupState === 'running' || state._setupState === 'waiting')) {
+      pollSetupAgent(opp_id);
+    }
+  }, 500);
+});
+
 routeFromHash();
 </script>
 </body>

@@ -81,3 +81,29 @@ def update_evidence(opp_id: str, evidence_id: str, body: EvidenceApproval, reque
             f.write_text(json.dumps(data, indent=2))
             return data
     raise HTTPException(404, f"Evidence {evidence_id} not found")
+
+
+class FindingApproval(BaseModel):
+    approval_status: ApprovalStatus
+
+
+@router.patch("/{opp_id}/{evidence_id}/findings/{finding_index}")
+def update_finding(opp_id: str, evidence_id: str, finding_index: int, body: FindingApproval, request: Request):
+    workspace_svc = request.app.state.workspace_svc
+    opp = workspace_svc.get_opportunity(opp_id)
+    if opp is None:
+        raise HTTPException(404, f"Workspace {opp_id} not found")
+    ev_dir = workspace_svc.data_dir / "workspaces" / opp_id / "evidence"
+    if not ev_dir.exists():
+        raise HTTPException(404, f"Evidence {evidence_id} not found")
+    for f in ev_dir.glob("*.json"):
+        data = json.loads(f.read_text())
+        if data.get("id") == evidence_id:
+            findings = data.get("findings", [])
+            if finding_index < 0 or finding_index >= len(findings):
+                raise HTTPException(404, f"Finding index {finding_index} out of range")
+            findings[finding_index]["approval_status"] = body.approval_status.value
+            data["findings"] = findings
+            f.write_text(json.dumps(data, indent=2))
+            return data
+    raise HTTPException(404, f"Evidence {evidence_id} not found")

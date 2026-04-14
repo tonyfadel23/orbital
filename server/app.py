@@ -85,6 +85,15 @@ def create_app(root: Path | None = None) -> FastAPI:
             if not manager._connections.get(opp_id):
                 await watcher.stop(opp_id)
 
+    # Heartbeat lifecycle
+    @app.on_event("startup")
+    async def start_heartbeat():
+        await app.state.ws_manager.start_heartbeat(interval=15.0)
+
+    @app.on_event("shutdown")
+    async def stop_heartbeat():
+        await app.state.ws_manager.stop_heartbeat()
+
     # Static files (frontend)
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

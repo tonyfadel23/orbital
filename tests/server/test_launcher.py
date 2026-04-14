@@ -1,6 +1,7 @@
 """Tests for AgentLauncher — subprocess management for Claude agents."""
 
 import subprocess
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -263,26 +264,58 @@ class TestAgentLauncher:
         assert outputs["product"] == ["line1"]
         assert outputs["data"] == ["line2"]
 
-    def test_launch_staggered_launches_all(self, tmp_path):
-        """launch_staggered starts all functions with delays."""
+    def test_launch_staggered_returns_immediately(self, tmp_path):
+        """launch_staggered launches first agent synchronously, returns immediately."""
         launcher = AgentLauncher(tmp_path)
         cmds = {"product": "echo p", "data": "echo d", "design": "echo ds"}
-        with patch.object(launcher, "launch", return_value=True) as mock_launch:
-            with patch("server.services.launcher.time.sleep") as mock_sleep:
-                results = launcher.launch_staggered("opp-001", cmds, delay_seconds=5)
-        assert results == {"product": True, "data": True, "design": True}
-        assert mock_launch.call_count == 3
+        launch_event = threading.Event()
+        original_launch = launcher.launch
 
-    def test_launch_staggered_delays_between_launches(self, tmp_path):
-        """launch_staggered sleeps between each launch but not after the last."""
+        def blocking_launch(key, cmd):
+            result = original_launch(key, cmd)
+            if "product" not in key:
+                launch_event.wait(timeout=2)  # Block remaining agents
+            return result
+
+        with patch.object(launcher, "launch", side_effect=blocking_launch):
+            results = launcher.launch_staggered("opp-001", cmds, delay_seconds=0)
+        # Returns immediately with optimistic results, even though remaining agents are blocked
+        assert results == {"product": True, "data": True, "design": True}
+        launch_event.set()  # Unblock background thread
+
+    def test_launch_staggered_background_launches_remaining(self, tmp_path):
+        """launch_staggered spawns a background thread for remaining agents."""
         launcher = AgentLauncher(tmp_path)
         cmds = {"product": "echo p", "data": "echo d", "design": "echo ds"}
+        calls = []
+        def fake_launch(key, cmd):
+            calls.append(key)
+            return True
+        with patch.object(launcher, "launch", side_effect=fake_launch):
+            with patch("server.services.launcher.time.sleep"):
+                launcher.launch_staggered("opp-001", cmds, delay_seconds=0)
+        # Give background thread time to finish
+        time.sleep(0.2)
+        assert "opp-001:product" in calls
+        assert "opp-001:data" in calls
+        assert "opp-001:design" in calls
+
+    def test_launch_staggered_background_delays(self, tmp_path):
+        """Background thread sleeps before each remaining agent."""
+        launcher = AgentLauncher(tmp_path)
+        cmds = {"product": "echo p", "data": "echo d", "design": "echo ds"}
+        sleep_calls = []
+        real_sleep = time.sleep
+
+        def tracking_sleep(seconds):
+            sleep_calls.append(seconds)
+
         with patch.object(launcher, "launch", return_value=True):
-            with patch("server.services.launcher.time.sleep") as mock_sleep:
+            with patch("server.services.launcher.time.sleep", side_effect=tracking_sleep):
                 launcher.launch_staggered("opp-001", cmds, delay_seconds=15)
-        # Should sleep between launches: N-1 times for N agents
-        assert mock_sleep.call_count == 2
-        mock_sleep.assert_called_with(15)
+                real_sleep(0.2)  # Wait for background thread
+        # Background thread sleeps once before each remaining agent (2 agents)
+        assert sleep_calls == [15, 15]
 
     def test_launch_staggered_uses_compound_key(self, tmp_path):
         """launch_staggered passes compound key (opp_id:function) to launch()."""
@@ -294,19 +327,27 @@ class TestAgentLauncher:
             return True
         with patch.object(launcher, "launch", side_effect=fake_launch):
             with patch("server.services.launcher.time.sleep"):
-                launcher.launch_staggered("opp-001", cmds)
+                launcher.launch_staggered("opp-001", cmds, delay_seconds=0)
+        time.sleep(0.2)
         assert "opp-001:product" in calls
         assert "opp-001:data" in calls
 
-    def test_launch_staggered_single_agent_no_delay(self, tmp_path):
-        """launch_staggered with one agent should not sleep at all."""
+    def test_launch_staggered_single_agent_no_thread(self, tmp_path):
+        """launch_staggered with one agent launches synchronously, no background thread."""
         launcher = AgentLauncher(tmp_path)
         cmds = {"product": "echo p"}
-        with patch.object(launcher, "launch", return_value=True):
+        with patch.object(launcher, "launch", return_value=True) as mock_launch:
             with patch("server.services.launcher.time.sleep") as mock_sleep:
                 results = launcher.launch_staggered("opp-001", cmds)
         assert results == {"product": True}
+        mock_launch.assert_called_once()
         mock_sleep.assert_not_called()
+
+    def test_launch_staggered_empty_commands(self, tmp_path):
+        """launch_staggered returns empty dict for empty commands."""
+        launcher = AgentLauncher(tmp_path)
+        results = launcher.launch_staggered("opp-001", {})
+        assert results == {}
 
     def test_list_processes_empty(self, tmp_path):
         """list_processes returns empty list when nothing tracked."""

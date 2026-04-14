@@ -137,15 +137,40 @@ class AgentLauncher:
 
     def launch_staggered(self, opp_id: str, commands: dict[str, str],
                          delay_seconds: int = 15) -> dict[str, bool]:
-        """Launch subprocesses with delay between each to avoid rate limits."""
-        results = {}
+        """Launch subprocesses with delay between each to avoid rate limits.
+
+        Launches the first agent immediately and returns. Remaining agents
+        are launched in a background thread with ``delay_seconds`` between each.
+        The returned dict contains all function names mapped to ``True``
+        (optimistic — failures are logged but not propagated).
+        """
         items = list(commands.items())
-        for i, (fn, cmd) in enumerate(items):
-            key = f"{opp_id}:{fn}"
-            results[fn] = self.launch(key, cmd)
-            if i < len(items) - 1:
-                time.sleep(delay_seconds)
+        if not items:
+            return {}
+
+        # Launch the first agent synchronously so the caller knows it started
+        first_fn, first_cmd = items[0]
+        results = {fn: True for fn, _ in items}
+        self.launch(f"{opp_id}:{first_fn}", first_cmd)
+
+        # Launch the rest in a background thread with delays
+        if len(items) > 1:
+            remaining = items[1:]
+            thread = threading.Thread(
+                target=self._launch_remaining,
+                args=(opp_id, remaining, delay_seconds),
+                daemon=True,
+            )
+            thread.start()
+
         return results
+
+    def _launch_remaining(self, opp_id: str, items: list[tuple[str, str]],
+                          delay_seconds: int):
+        """Background worker — launches agents with delays between each."""
+        for fn, cmd in items:
+            time.sleep(delay_seconds)
+            self.launch(f"{opp_id}:{fn}", cmd)
 
     def is_any_function_running(self, opp_id: str) -> bool:
         """Return True if any function subprocess for this opp_id is still alive."""

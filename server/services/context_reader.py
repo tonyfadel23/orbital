@@ -97,7 +97,7 @@ class MarkdownContextReader:
 
     def _resolve_path(self, layer_type: str, name: str) -> Path | None:
         """Map layer_type + name to a filesystem path."""
-        if layer_type == "company":
+        if layer_type in ("company", "_company"):
             return self.root / "_company" / "_context.md"
         if layer_type == "country":
             return self.root / "_company" / "countries" / name / "_context.md"
@@ -108,6 +108,14 @@ class MarkdownContextReader:
             parts = name.split("-", 1)
             if len(parts) == 2:
                 return self.root / parts[0] / "countries" / parts[1] / "_context.md"
+        # Fallback: raw directory name from agent tool-call detection
+        # e.g. layer_type="groceries", name="_context"
+        candidate = self.root / layer_type / (name + ".md")
+        if candidate.exists():
+            return candidate
+        country_candidate = self.root / "_company" / "countries" / layer_type / (name + ".md")
+        if country_candidate.exists():
+            return country_candidate
         return None
 
     # --- Full parsing ---
@@ -135,6 +143,7 @@ class MarkdownContextReader:
     def _type_for(self, layer_type: str) -> str:
         return {
             "company": "global",
+            "_company": "global",
             "country": "country",
             "bl": "business_line",
             "bl-country": "business_line_country",
