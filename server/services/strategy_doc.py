@@ -1,6 +1,7 @@
 """Strategy document builder — produces a self-contained HTML strategy one-pager."""
 
 import html
+import re
 
 
 class StrategyDocBuilder:
@@ -366,6 +367,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 """
+
+    @staticmethod
+    def _sanitize_html(content: str) -> str:
+        """Strip dangerous HTML: scripts, event handlers, javascript: URLs."""
+        content = re.sub(r'<script[^>]*>.*?</script>', '', content, flags=re.DOTALL | re.IGNORECASE)
+        content = re.sub(r'\bon\w+\s*=\s*"[^"]*"', '', content, flags=re.IGNORECASE)
+        content = re.sub(r"\bon\w+\s*=\s*'[^']*'", '', content, flags=re.IGNORECASE)
+        content = re.sub(r'javascript\s*:', '', content, flags=re.IGNORECASE)
+        return content
 
     def _render_act1_problem(self) -> str:
         return ""

@@ -141,3 +141,34 @@ class TestJsCarouselScroll:
     def test_js_has_carousel_scroll(self, builder):
         result = builder.build()
         assert "scrollBy" in result
+
+
+class TestSanitizeHtml:
+    def test_sanitize_removes_script_tags(self):
+        result = StrategyDocBuilder._sanitize_html('<div>safe</div><script>alert(1)</script>')
+        assert '<script' not in result
+        assert 'alert(1)' not in result
+        assert '<div>safe</div>' in result
+
+    def test_sanitize_removes_event_handlers(self):
+        result = StrategyDocBuilder._sanitize_html('<button onclick="alert(1)">Click</button>')
+        assert 'onclick' not in result
+        assert '<button' in result
+        assert 'Click</button>' in result
+
+    def test_sanitize_removes_javascript_urls(self):
+        result = StrategyDocBuilder._sanitize_html('<a href="javascript:alert(1)">Link</a>')
+        assert 'javascript' not in result.lower()
+        assert '<a' in result
+
+    def test_sanitize_preserves_safe_html(self):
+        safe = '<div class="container"><p>Hello</p><img src="photo.jpg" alt="test"></div>'
+        result = StrategyDocBuilder._sanitize_html(safe)
+        assert result == safe
+
+    def test_sanitize_handles_multiline_script(self):
+        content = '<div>before</div><script>\nvar x = 1;\nalert(x);\n</script><div>after</div>'
+        result = StrategyDocBuilder._sanitize_html(content)
+        assert '<script' not in result
+        assert '<div>before</div>' in result
+        assert '<div>after</div>' in result
