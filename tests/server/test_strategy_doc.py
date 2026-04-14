@@ -275,3 +275,89 @@ class TestAct1EmptyContext:
         """Minimal workspace with no extracted_context should not crash."""
         result = builder.build()
         assert 'id="act-1"' in result
+
+
+# --- Act 2 fixtures and tests ---
+
+
+@pytest.fixture
+def strategy_workspace():
+    return {
+        "opportunity": {"title": "Test Opportunity", "type": "hypothesis"},
+        "synthesis": {
+            "verdict_summary": "Strong signal to proceed with grocery habit loop",
+            "recommendation": "proceed",
+            "convergence": [
+                {"finding": "Users want weekly delivery", "sources": ["market-analyst", "ux-researcher"], "agent_count": 3},
+                {"finding": "Price sensitivity is secondary", "sources": ["data-scientist"], "agent_count": 2},
+            ],
+            "counter_signals": [
+                {"finding_ref": "cs-001", "summary": "Logistics costs may erode margins", "severity": "critical", "addressed": False},
+                {"finding_ref": "cs-002", "summary": "Competitor already testing subscriptions", "severity": "notable", "addressed": True},
+            ],
+            "conflicts": [
+                {
+                    "topic": "Pricing strategy",
+                    "side_a": {"position": "Premium pricing justified by freshness", "agents": ["market-analyst"], "evidence": "Willingness to pay survey"},
+                    "side_b": {"position": "Must match competitor pricing", "agents": ["data-scientist"], "evidence": "Price elasticity model"},
+                    "resolution": "Test both in A/B experiment",
+                },
+            ],
+            "evidence_summary": {
+                "total_findings": 24,
+                "by_function": {"market-analyst": 8, "ux-researcher": 7, "data-scientist": 5, "strategist": 4},
+                "strongest_signal": "Weekly delivery demand confirmed across 3 user segments",
+                "strongest_counter_signal": "Logistics cost structure unvalidated",
+            },
+        },
+        "contributions": [],
+    }
+
+
+@pytest.fixture
+def strategy_builder(strategy_workspace):
+    return StrategyDocBuilder(workspace=strategy_workspace, votes=[], prototypes={})
+
+
+class TestAct2VerdictBanner:
+    def test_act2_renders_verdict_banner(self, strategy_builder):
+        result = strategy_builder.build()
+        assert "Strong signal to proceed" in result
+        # proceed recommendation should use green
+        assert "#10B981" in result or "var(--green)" in result
+
+
+class TestAct2Convergence:
+    def test_act2_renders_convergence(self, strategy_builder):
+        result = strategy_builder.build()
+        assert "Users want weekly delivery" in result
+        assert "3" in result  # agent_count
+
+
+class TestAct2CounterSignals:
+    def test_act2_renders_counter_signals(self, strategy_builder):
+        result = strategy_builder.build()
+        assert "Logistics costs may erode margins" in result
+        assert "critical" in result.lower()
+
+
+class TestAct2Conflicts:
+    def test_act2_renders_conflicts(self, strategy_builder):
+        result = strategy_builder.build()
+        assert "Pricing strategy" in result
+        assert "Premium pricing justified" in result
+        assert "Must match competitor" in result
+
+
+class TestAct2EvidenceSummary:
+    def test_act2_renders_evidence_summary(self, strategy_builder):
+        result = strategy_builder.build()
+        assert "24" in result  # total findings
+        assert "market-analyst" in result
+
+
+class TestAct2MissingSynthesis:
+    def test_act2_handles_missing_synthesis(self, builder):
+        """Minimal workspace with no synthesis should not crash."""
+        result = builder.build()
+        assert 'id="act-2"' in result

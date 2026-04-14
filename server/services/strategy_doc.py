@@ -498,7 +498,231 @@ document.addEventListener('DOMContentLoaded', () => {
         return "\n".join(parts)
 
     def _render_act2_strategy(self) -> str:
-        return ""
+        esc = html.escape
+        parts: list[str] = []
+
+        if not self.synthesis:
+            parts.append('<p class="muted">No investigation data yet.</p>')
+            return "\n".join(parts)
+
+        # --- Color mappings ---
+        rec_colors = {
+            "proceed": "#10B981",
+            "pivot": "#F59E0B",
+            "kill": "#EF4444",
+            "need_more_data": "#64748B",
+        }
+        severity_colors = {
+            "critical": "#EF4444",
+            "notable": "#F59E0B",
+            "minor": "#64748B",
+        }
+
+        # --- Verdict Banner ---
+        verdict_summary = self.synthesis.get("verdict_summary", "")
+        recommendation = self.synthesis.get("recommendation", "")
+        if verdict_summary or recommendation:
+            rec_color = rec_colors.get(recommendation, "#64748B")
+            parts.append(
+                f'<div class="card" style="border-left:4px solid {rec_color};padding:24px">'
+            )
+            if verdict_summary:
+                parts.append(
+                    f'<div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:8px">'
+                    f"{esc(verdict_summary)}</div>"
+                )
+            if recommendation:
+                parts.append(
+                    f'<span class="badge" style="background:{rec_color};color:#fff">'
+                    f"{esc(recommendation)}</span>"
+                )
+            parts.append("</div>")
+
+        # --- Evidence Summary ---
+        evidence = self.synthesis.get("evidence_summary") or {}
+        if evidence:
+            parts.append("<h2>Evidence</h2>")
+            parts.append('<div class="card">')
+            total = evidence.get("total_findings", 0)
+            parts.append(
+                f'<div style="font-size:28px;font-weight:700;color:var(--text-primary)">'
+                f"{total} findings</div>"
+            )
+            by_function = evidence.get("by_function") or {}
+            if by_function:
+                sorted_fns = sorted(by_function.items(), key=lambda x: x[1], reverse=True)
+                max_count = max(by_function.values()) if by_function else 1
+                for fn, count in sorted_fns:
+                    pct = (count / max_count) * 100 if max_count > 0 else 0
+                    parts.append('<div style="margin:8px 0">')
+                    parts.append(
+                        '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+                    )
+                    parts.append(
+                        f'<span style="color:var(--text-secondary);font-size:13px">{esc(fn)}</span>'
+                    )
+                    parts.append(
+                        f'<span style="color:var(--text-muted);font-size:13px">{count}</span>'
+                    )
+                    parts.append("</div>")
+                    parts.append(
+                        f'<div class="bar"><div class="bar__fill" style="width:{pct:.0f}%;background:var(--accent)"></div></div>'
+                    )
+                    parts.append("</div>")
+
+            strongest = evidence.get("strongest_signal", "")
+            if strongest:
+                parts.append(
+                    '<div style="margin-top:16px;padding:12px;background:rgba(16,185,129,0.1);border-radius:var(--radius)">'
+                )
+                parts.append(
+                    '<div style="color:var(--green);font-size:12px;font-weight:600;margin-bottom:4px">STRONGEST SIGNAL</div>'
+                )
+                parts.append(
+                    f'<div style="color:var(--text-primary)">{esc(strongest)}</div>'
+                )
+                parts.append("</div>")
+
+            strongest_counter = evidence.get("strongest_counter_signal", "")
+            if strongest_counter:
+                parts.append(
+                    '<div style="margin-top:8px;padding:12px;background:rgba(239,68,68,0.1);border-radius:var(--radius)">'
+                )
+                parts.append(
+                    '<div style="color:var(--red);font-size:12px;font-weight:600;margin-bottom:4px">STRONGEST COUNTER-SIGNAL</div>'
+                )
+                parts.append(
+                    f'<div style="color:var(--text-primary)">{esc(strongest_counter)}</div>'
+                )
+                parts.append("</div>")
+
+            parts.append("</div>")
+
+        # --- Convergence ---
+        convergence = self.synthesis.get("convergence") or []
+        if convergence:
+            parts.append("<h2>Where Agents Agree</h2>")
+            for item in convergence:
+                finding = esc(item.get("finding", ""))
+                agent_count = item.get("agent_count", 0)
+                sources = item.get("sources") or []
+                parts.append('<div class="card">')
+                parts.append(
+                    '<div style="display:flex;justify-content:space-between;align-items:center">'
+                )
+                parts.append(
+                    f'<span style="color:var(--text-primary)">{finding}</span>'
+                )
+                parts.append(
+                    f'<span class="badge" style="background:var(--accent);color:#fff">'
+                    f"{agent_count} agents</span>"
+                )
+                parts.append("</div>")
+                if sources:
+                    parts.append(
+                        f'<div style="color:var(--text-muted);font-size:12px;margin-top:4px">'
+                        f"{esc(', '.join(sources))}</div>"
+                    )
+                parts.append("</div>")
+
+        # --- Counter-Signals ---
+        counter_signals = self.synthesis.get("counter_signals") or []
+        if counter_signals:
+            parts.append("<h2>Counter-Signals</h2>")
+            for cs in counter_signals:
+                summary = esc(cs.get("summary", ""))
+                severity = cs.get("severity", "minor")
+                addressed = cs.get("addressed", False)
+                sev_color = severity_colors.get(severity, "#64748B")
+                parts.append(
+                    f'<div class="card" style="border-left:3px solid {sev_color}">'
+                )
+                parts.append(
+                    '<div style="display:flex;justify-content:space-between;align-items:center">'
+                )
+                parts.append(
+                    f'<span style="color:var(--text-primary)">{summary}</span>'
+                )
+                parts.append(
+                    f'<span class="badge" style="background:{sev_color};color:#fff">'
+                    f"{esc(severity)}</span>"
+                )
+                parts.append("</div>")
+                addr_text = "\u2713 Addressed" if addressed else "\u26a0 Unaddressed"
+                parts.append(
+                    f'<div style="color:var(--text-muted);font-size:12px;margin-top:4px">'
+                    f"{addr_text}</div>"
+                )
+                parts.append("</div>")
+
+        # --- Conflicts ---
+        conflicts = self.synthesis.get("conflicts") or []
+        if conflicts:
+            parts.append("<h2>Conflicts</h2>")
+            for conflict in conflicts:
+                topic = esc(conflict.get("topic", ""))
+                side_a = conflict.get("side_a") or {}
+                side_b = conflict.get("side_b") or {}
+                resolution = esc(conflict.get("resolution", ""))
+
+                parts.append('<div class="card">')
+                parts.append(f'<h3 style="margin-top:0">{topic}</h3>')
+                parts.append(
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+                )
+
+                # Side A
+                a_agents = ", ".join(side_a.get("agents") or [])
+                a_position = esc(side_a.get("position", ""))
+                a_evidence = esc(side_a.get("evidence", ""))
+                parts.append(
+                    '<div style="padding:12px;background:rgba(59,130,246,0.1);border-radius:var(--radius)">'
+                )
+                parts.append(
+                    f'<div style="color:var(--accent);font-size:12px;font-weight:600;margin-bottom:4px">'
+                    f"SIDE A \u2014 {esc(a_agents)}</div>"
+                )
+                parts.append(
+                    f'<div style="color:var(--text-primary)">{a_position}</div>'
+                )
+                if a_evidence:
+                    parts.append(
+                        f'<div style="color:var(--text-muted);font-size:12px;margin-top:4px">'
+                        f"{a_evidence}</div>"
+                    )
+                parts.append("</div>")
+
+                # Side B
+                b_agents = ", ".join(side_b.get("agents") or [])
+                b_position = esc(side_b.get("position", ""))
+                b_evidence = esc(side_b.get("evidence", ""))
+                parts.append(
+                    '<div style="padding:12px;background:rgba(168,85,247,0.1);border-radius:var(--radius)">'
+                )
+                parts.append(
+                    f'<div style="color:var(--purple);font-size:12px;font-weight:600;margin-bottom:4px">'
+                    f"SIDE B \u2014 {esc(b_agents)}</div>"
+                )
+                parts.append(
+                    f'<div style="color:var(--text-primary)">{b_position}</div>'
+                )
+                if b_evidence:
+                    parts.append(
+                        f'<div style="color:var(--text-muted);font-size:12px;margin-top:4px">'
+                        f"{b_evidence}</div>"
+                    )
+                parts.append("</div>")
+
+                parts.append("</div>")  # grid
+
+                if resolution:
+                    parts.append(
+                        f'<div style="color:var(--text-secondary);margin-top:12px;font-style:italic">'
+                        f"Resolution: {resolution}</div>"
+                    )
+                parts.append("</div>")  # card
+
+        return "\n".join(parts)
 
     def _render_act3_product(self) -> str:
         return ""
