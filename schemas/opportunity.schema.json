@@ -4,7 +4,7 @@
   "title": "Orbital Opportunity",
   "description": "The center object of an orbital cycle — a hypothesis, problem statement, or strategic question that agents investigate in parallel.",
   "type": "object",
-  "required": ["id", "type", "title", "description", "context_refs", "assumptions", "success_signals", "kill_signals", "status", "decision", "created_at", "updated_at"],
+  "required": ["id", "type", "title", "description", "context_refs", "assumptions", "success_signals", "kill_signals", "extracted_context", "status", "decision", "created_at", "updated_at"],
   "properties": {
     "id": {
       "type": "string",
@@ -67,6 +67,39 @@
       "items": { "type": "string" },
       "description": "What evidence would make us kill this"
     },
+    "extracted_context": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["category", "fact", "source_layer"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["metric", "persona", "competitor", "goal", "strategy", "market_signal"],
+            "description": "Type of context fact"
+          },
+          "fact": {
+            "type": "string",
+            "minLength": 10,
+            "description": "The specific fact or data point"
+          },
+          "value": {
+            "type": "string",
+            "description": "Quantitative value if applicable (e.g., '23% YoY', '2.3x retention')"
+          },
+          "source_layer": {
+            "type": "string",
+            "description": "Which context layer this came from (e.g., 'L2a-groceries', 'L1-global')"
+          },
+          "relevance": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Why this fact matters for this specific opportunity"
+          }
+        }
+      },
+      "description": "Specific facts and data points the agent extracted from context layers as relevant to this opportunity"
+    },
     "status": {
       "type": "string",
       "enum": ["aligning", "framed", "assembled", "orbiting", "scoring", "decided"],
@@ -106,7 +139,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["context_added", "reframed", "assumption_added", "assumption_modified", "signal_modified", "user_confirmed"]
+            "enum": ["context_added", "context_extracted", "reframed", "assumption_added", "assumption_modified", "signal_modified", "user_confirmed"]
           },
           "detail": {
             "type": "string",

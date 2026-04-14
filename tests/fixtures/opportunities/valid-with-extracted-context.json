@@ -1,0 +1,43 @@
+{
+  "id": "opp-20260414-100000",
+  "type": "hypothesis",
+  "title": "Fresh and ultra fresh sales increase in Dubai market",
+  "description": "We believe that expanding fresh category assortment and improving delivery speed for ultra-fresh items will increase tMart fresh GMV by 20% in Dubai within Q2 2026.",
+  "context_refs": ["L1-global", "L2a-groceries", "L2b-ae"],
+  "assumptions": [
+    {
+      "id": "asm-001",
+      "content": "Dubai customers are willing to pay premium for faster fresh delivery",
+      "status": "untested",
+      "importance": "critical"
+    }
+  ],
+  "success_signals": ["Fresh category GMV increases by 20% in Dubai"],
+  "kill_signals": ["No measurable uplift after 6 weeks"],
+  "extracted_context": [
+    {
+      "category": "metric",
+      "fact": "tMart fresh category grew 23% YoY in Dubai market",
+      "value": "23% YoY",
+      "source_layer": "L2a-groceries",
+      "relevance": "Growth signal suggests demand exists but may be supply-constrained"
+    },
+    {
+      "category": "persona",
+      "fact": "Weekly Basket Builder persona represents 34% of grocery GMV",
+      "value": "34% of GMV",
+      "source_layer": "L2a-groceries",
+      "relevance": "Primary target segment for fresh category expansion"
+    },
+    {
+      "category": "competitor",
+      "fact": "Instashop offers 20-minute fresh delivery in Dubai Marina",
+      "source_layer": "L2b-ae",
+      "relevance": "Competitive pressure in premium Dubai areas requires speed parity"
+    }
+  ],
+  "status": "aligning",
+  "decision": null,
+  "created_at": "2026-04-14T10:00:00Z",
+  "updated_at": "2026-04-14T10:00:00Z"
+}

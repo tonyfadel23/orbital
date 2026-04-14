@@ -1,0 +1,20 @@
+{
+  "id": "opp-20260414-110000",
+  "type": "hypothesis",
+  "title": "Testing bad extracted context validation",
+  "description": "This fixture should fail validation due to missing category in extracted_context",
+  "context_refs": ["L1-global"],
+  "assumptions": [],
+  "success_signals": ["Something good"],
+  "kill_signals": ["Something bad"],
+  "extracted_context": [
+    {
+      "fact": "This fact is missing the required category field",
+      "source_layer": "L1-global"
+    }
+  ],
+  "status": "aligning",
+  "decision": null,
+  "created_at": "2026-04-14T11:00:00Z",
+  "updated_at": "2026-04-14T11:00:00Z"
+}

@@ -24,6 +24,7 @@
   "kill_signals": [
     "Churn is driven by price sensitivity alone — no UX intervention viable"
   ],
+  "extracted_context": [],
   "status": "aligning",
   "refinement_history": [
     {
