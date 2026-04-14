@@ -923,4 +923,128 @@ document.addEventListener('DOMContentLoaded', () => {
         return "\n".join(parts)
 
     def _render_act4_plan(self) -> str:
-        return ""
+        if not self.synthesis:
+            return '<p style="color:var(--text-muted)">No plan data yet.</p>'
+
+        parts: list[str] = []
+        rec = self.synthesis.get("recommendation", "")
+        rec_colors = {"proceed": "#10B981", "pivot": "#F59E0B", "kill": "#EF4444", "need_more_data": "#64748B"}
+        rec_color = rec_colors.get(rec, "#64748B")
+
+        # 1. Recommendation Card
+        verdict = html.escape(self.synthesis.get("verdict_summary", ""))
+        rationale = html.escape(self.synthesis.get("rationale", ""))
+        if verdict:
+            parts.append(f'''<div class="card" style="border-left:4px solid {rec_color};padding:24px 24px 16px">
+<div style="font-size:24px;font-weight:700;color:var(--text-primary);margin-bottom:8px">{verdict}</div>
+<span class="badge" style="background:{rec_color};color:#fff">{html.escape(rec)}</span>
+{f'<p style="margin-top:16px;color:var(--text-secondary);line-height:1.6">{rationale}</p>' if rationale else ''}
+</div>''')
+
+        # 2. Impact & Effort (side by side)
+        impact = html.escape(self.synthesis.get("expected_impact", ""))
+        effort = html.escape(self.synthesis.get("estimated_effort", ""))
+        if impact or effort:
+            parts.append('<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0">')
+            if impact:
+                parts.append(f'''<div class="card">
+<div style="color:var(--green);font-size:12px;font-weight:600;margin-bottom:8px">EXPECTED IMPACT</div>
+<div style="color:var(--text-primary)">{impact}</div>
+</div>''')
+            if effort:
+                parts.append(f'''<div class="card">
+<div style="color:var(--accent);font-size:12px;font-weight:600;margin-bottom:8px">ESTIMATED EFFORT</div>
+<div style="color:var(--text-primary)">{effort}</div>
+</div>''')
+            parts.append('</div>')
+
+        # 3. Consensus Ranking
+        solutions = self.synthesis.get("solutions", [])
+        sol_map = {s["id"]: s for s in solutions}
+        ranking = self.synthesis.get("dot_vote_summary", {}).get("consensus_ranking", [])
+        arch_colors = {"incremental": "#10B981", "moderate": "#3B82F6", "ambitious": "#A855F7"}
+
+        if ranking:
+            parts.append('<h2>Consensus Ranking</h2>')
+            for i, sol_id in enumerate(ranking):
+                sol = sol_map.get(sol_id, {})
+                title = html.escape(sol.get("title", sol_id))
+                arch = sol.get("archetype", "")
+                total = sol.get("ice_score", {}).get("total", "")
+                ac = arch_colors.get(arch, "#64748B")
+                parts.append(f'''<div class="card" style="display:flex;align-items:center;gap:16px">
+<div style="font-size:24px;font-weight:700;color:var(--text-muted);width:32px">{i+1}</div>
+<div style="flex:1">
+  <span style="color:var(--text-primary);font-weight:600">{title}</span>
+  <span class="badge" style="background:{ac};color:#fff;margin-left:8px">{html.escape(arch)}</span>
+</div>
+<div style="color:var(--text-muted);font-size:13px">ICE {total}</div>
+</div>''')
+
+        # 4. Recommended Sequence (visual chain)
+        seq = self.synthesis.get("recommended_sequence", [])
+        if seq:
+            parts.append('<h2>Recommended Sequence</h2>')
+            parts.append('<div style="display:flex;align-items:center;flex-wrap:wrap;gap:0">')
+            for j, sid in enumerate(seq):
+                sol = sol_map.get(sid, {})
+                title = html.escape(sol.get("title", sid))
+                arch = sol.get("archetype", "")
+                ac = arch_colors.get(arch, "#64748B")
+                deps = sol.get("depends_on", [])
+                dep_text = ""
+                if deps:
+                    dep_names = [html.escape(sol_map.get(d, {}).get("title", d)) for d in deps]
+                    dep_text = f'<div style="color:var(--text-muted);font-size:11px;margin-top:4px">After: {", ".join(dep_names)}</div>'
+                parts.append(f'''<div class="card" style="flex:0 0 auto;text-align:center;min-width:140px">
+<div style="color:{ac};font-size:12px;font-weight:600;text-transform:uppercase">{html.escape(arch)}</div>
+<div style="color:var(--text-primary);font-weight:600;margin-top:4px">{title}</div>
+{dep_text}
+</div>''')
+                if j < len(seq) - 1:
+                    parts.append('<div style="color:var(--text-muted);font-size:20px;padding:0 8px">\u2192</div>')
+            parts.append('</div>')
+
+        # 5. Proceed Conditions (aggregate from all solutions)
+        all_conditions: list[dict] = []
+        for sol in solutions:
+            for cond in sol.get("proceed_conditions", []):
+                all_conditions.append(cond)
+        if all_conditions:
+            parts.append('<h2>Proceed Conditions</h2>')
+            parts.append('''<table class="conditions-table"><thead><tr>
+<th>Condition</th><th>Measurement</th><th>Threshold</th>
+</tr></thead><tbody>''')
+            for c in all_conditions:
+                parts.append(f'''<tr>
+<td style="color:var(--text-primary)">{html.escape(c.get("condition", ""))}</td>
+<td style="color:var(--text-secondary)">{html.escape(c.get("measurement", ""))}</td>
+<td style="color:var(--text-secondary)">{html.escape(c.get("threshold", ""))}</td>
+</tr>''')
+            parts.append('</tbody></table>')
+
+        # 6. Quality Scores (5 horizontal bars)
+        qs = self.synthesis.get("quality_score", {})
+        if qs:
+            parts.append('<h2>Investigation Quality</h2>')
+            parts.append('<div class="card">')
+            labels = {
+                "assumption_coverage": "Assumption Coverage",
+                "evidence_balance": "Evidence Balance",
+                "conflict_surfacing": "Conflict Surfacing",
+                "artifact_relevance": "Artifact Relevance",
+                "overall": "Overall",
+            }
+            for key, label in labels.items():
+                val = qs.get(key, 0)
+                pct = round(val * 100)
+                parts.append(f'''<div style="margin-bottom:12px">
+<div style="display:flex;justify-content:space-between;margin-bottom:4px">
+  <span style="color:var(--text-secondary);font-size:13px">{label}</span>
+  <span style="color:var(--text-muted);font-size:13px">{pct}%</span>
+</div>
+<div class="bar"><div class="bar__fill" style="width:{pct}%;background:var(--accent)"></div></div>
+</div>''')
+            parts.append('</div>')
+
+        return "\n".join(parts)

@@ -589,3 +589,110 @@ class TestAct3SanitizesPrototype:
         srcdoc_content = html.unescape(srcdoc_match.group(1))
         assert "<script>" not in srcdoc_content
         assert "alert" not in srcdoc_content
+
+
+# --- Act 4 fixtures and tests ---
+
+
+@pytest.fixture
+def plan_workspace():
+    return {
+        "opportunity": {"title": "Test Plan", "type": "hypothesis"},
+        "synthesis": {
+            "verdict_summary": "Proceed with weekly box as first bet",
+            "recommendation": "proceed",
+            "rationale": "Multiple data points confirm weekly grocery demand exists across segments. Low-risk incremental approach validated by both market and UX research.",
+            "expected_impact": "15% increase in repeat purchase rate within 6 months",
+            "estimated_effort": "1 squad, 3 sprints for MVP",
+            "solutions": [
+                {"id": "sol-001", "title": "Weekly Box", "archetype": "incremental",
+                 "ice_score": {"impact": 7, "confidence": 6, "ease": 8, "total": 336},
+                 "depends_on": [], "proceed_conditions": [
+                    {"condition": "Positive unit economics", "measurement": "Margin per box", "threshold": "> $2"},
+                    {"condition": "User retention", "measurement": "4-week repeat rate", "threshold": "> 40%"},
+                 ]},
+                {"id": "sol-002", "title": "Smart Reorder", "archetype": "moderate",
+                 "ice_score": {"impact": 8, "confidence": 5, "ease": 4, "total": 160},
+                 "depends_on": ["sol-001"]},
+                {"id": "sol-003", "title": "Grocery Platform", "archetype": "ambitious",
+                 "ice_score": {"impact": 9, "confidence": 3, "ease": 2, "total": 54},
+                 "depends_on": ["sol-001", "sol-002"]},
+            ],
+            "dot_vote_summary": {
+                "consensus_ranking": ["sol-001", "sol-002", "sol-003"],
+            },
+            "recommended_sequence": ["sol-001", "sol-002", "sol-003"],
+            "quality_score": {
+                "assumption_coverage": 0.8,
+                "evidence_balance": 0.7,
+                "conflict_surfacing": 0.6,
+                "artifact_relevance": 0.9,
+                "overall": 0.75,
+            },
+        },
+        "contributions": [],
+    }
+
+
+@pytest.fixture
+def plan_builder(plan_workspace):
+    return StrategyDocBuilder(workspace=plan_workspace, votes=[], prototypes={})
+
+
+class TestAct4RecommendationCard:
+    def test_act4_recommendation_card(self, plan_builder):
+        result = plan_builder.build()
+        assert "Proceed with weekly box" in result
+        # Should use green for "proceed"
+        assert "#10B981" in result
+
+
+class TestAct4Rationale:
+    def test_act4_rationale(self, plan_builder):
+        result = plan_builder.build()
+        assert "Multiple data points confirm" in result
+
+
+class TestAct4ImpactAndEffort:
+    def test_act4_impact_and_effort(self, plan_builder):
+        result = plan_builder.build()
+        assert "15% increase in repeat purchase" in result
+        assert "1 squad, 3 sprints" in result
+
+
+class TestAct4ConsensusRanking:
+    def test_act4_consensus_ranking(self, plan_builder):
+        result = plan_builder.build()
+        # All three solutions should appear in ranking
+        assert "Weekly Box" in result
+        assert "Smart Reorder" in result
+        assert "Grocery Platform" in result
+
+
+class TestAct4RecommendedSequence:
+    def test_act4_recommended_sequence(self, plan_builder):
+        result = plan_builder.build()
+        # Sequence should show dependency chain
+        assert "sol-001" in result or "Weekly Box" in result
+
+
+class TestAct4ProceedConditions:
+    def test_act4_proceed_conditions(self, plan_builder):
+        result = plan_builder.build()
+        assert "Positive unit economics" in result
+        assert "Margin per box" in result
+        assert "&gt; $2" in result or "> $2" in result
+
+
+class TestAct4QualityScores:
+    def test_act4_quality_scores(self, plan_builder):
+        result = plan_builder.build()
+        assert "80%" in result  # assumption_coverage 0.8
+        assert "75%" in result  # overall 0.75
+
+
+class TestAct4MissingFields:
+    def test_act4_handles_missing_fields(self, builder):
+        """Minimal workspace should not crash."""
+        result = builder.build()
+        assert 'id="act-4"' in result
