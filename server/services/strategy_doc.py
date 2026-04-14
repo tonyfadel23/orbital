@@ -326,7 +326,46 @@ p { margin: 0 0 12px; color: var(--text-secondary); }
 """
 
     def _js(self) -> str:
-        return ""
+        return """
+document.addEventListener('DOMContentLoaded', () => {
+  const dots = document.querySelectorAll('.dot-toc__dot');
+  const acts = document.querySelectorAll('.act');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        dots.forEach(d => d.classList.toggle('active', d.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-40% 0px -40% 0px', threshold: 0 });
+  acts.forEach(a => observer.observe(a));
+  dots.forEach(d => d.addEventListener('click', e => {
+    e.preventDefault();
+    document.getElementById(d.getAttribute('href').slice(1)).scrollIntoView({ behavior: 'smooth' });
+  }));
+
+  document.querySelectorAll('.collapsible-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const panel = btn.nextElementSibling;
+      btn.classList.toggle('open');
+      if (btn.classList.contains('open')) {
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+      } else {
+        panel.style.maxHeight = '0';
+      }
+    });
+  });
+
+  document.querySelectorAll('.carousel__btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const track = btn.closest('.carousel-container').querySelector('.carousel');
+      const direction = btn.dataset.dir === 'next' ? 1 : -1;
+      const slideWidth = track.querySelector('.carousel__slide').offsetWidth + 24;
+      track.scrollBy({ left: direction * slideWidth, behavior: 'smooth' });
+    });
+  });
+});
+"""
 
     def _render_act1_problem(self) -> str:
         return ""

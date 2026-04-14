@@ -123,3 +123,21 @@ class TestCssCollapsible:
         result = builder.build()
         assert ".collapsible-toggle" in result
         assert ".collapsible-panel" in result
+
+
+class TestJsIntersectionObserver:
+    def test_js_has_intersection_observer(self, builder):
+        result = builder.build()
+        assert "IntersectionObserver" in result
+
+
+class TestJsCollapsibleHandler:
+    def test_js_has_collapsible_handler(self, builder):
+        result = builder.build()
+        assert "collapsible-toggle" in result
+
+
+class TestJsCarouselScroll:
+    def test_js_has_carousel_scroll(self, builder):
+        result = builder.build()
+        assert "scrollBy" in result
