@@ -505,3 +505,93 @@ class TestLauncherResilience:
         """restart() returns False for unknown opp_id."""
         launcher = AgentLauncher(tmp_path)
         assert launcher.restart("opp-999") is False
+
+
+class TestOutputPersistence:
+    """Output lines are persisted to disk and survive server restarts."""
+
+    def test_output_persisted_to_disk(self, tmp_path):
+        """Lines appended to deque are also written to output.log on disk."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        launcher = AgentLauncher(tmp_path)
+        launcher._output["opp-001"] = deque(maxlen=200)
+        launcher._output["opp-001"].append("line 1")
+        launcher._persist_line("opp-001", "line 1")
+        launcher._output["opp-001"].append("line 2")
+        launcher._persist_line("opp-001", "line 2")
+
+        log_path = ws_dir / "output.log"
+        assert log_path.exists()
+        lines = log_path.read_text().splitlines()
+        assert lines == ["line 1", "line 2"]
+
+    def test_output_restored_after_restart(self, tmp_path):
+        """get_full_output() loads from disk when deque is empty (server restart)."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "output.log").write_text("line A\nline B\nline C\n")
+
+        launcher = AgentLauncher(tmp_path)
+        output = launcher.get_full_output("opp-001")
+        assert output == ["line A", "line B", "line C"]
+
+    def test_restored_output_excludes_resumed_markers(self, tmp_path):
+        """Restored output filters out --- RESUMED --- markers."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "output.log").write_text("line A\n--- RESUMED ---\nline B\n")
+
+        launcher = AgentLauncher(tmp_path)
+        output = launcher.get_full_output("opp-001")
+        assert output == ["line A", "line B"]
+
+    def test_resumed_separator_persisted(self, tmp_path):
+        """--- RESUMED --- markers are written to disk too."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        launcher = AgentLauncher(tmp_path)
+        launcher._output["opp-001"] = deque(["first line"], maxlen=200)
+        (ws_dir / "output.log").write_text("first line\n")
+
+        # Simulate resume: launcher.launch() adds the separator
+        launcher._output["opp-001"].append("--- RESUMED ---")
+        launcher._persist_line("opp-001", "--- RESUMED ---")
+
+        lines = (ws_dir / "output.log").read_text().splitlines()
+        assert "--- RESUMED ---" in lines
+
+    def test_restart_clears_disk_log(self, tmp_path):
+        """restart() clears both deque and disk log."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "output.log").write_text("old line\n")
+
+        launcher = AgentLauncher(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0
+        launcher._processes["opp-001"] = mock_proc
+        launcher._output["opp-001"] = deque(["old line"])
+
+        launcher.restart("opp-001")
+        assert not (ws_dir / "output.log").exists()
+
+    def test_parallel_agent_output_persisted(self, tmp_path):
+        """Parallel agent output uses output-{function}.log naming."""
+        ws_dir = tmp_path / "data" / "workspaces" / "opp-001"
+        ws_dir.mkdir(parents=True)
+        launcher = AgentLauncher(tmp_path)
+        key = "opp-001:product"
+        launcher._output[key] = deque(maxlen=200)
+        launcher._persist_line(key, "product finding")
+
+        log_path = ws_dir / "output-product.log"
+        assert log_path.exists()
+        assert log_path.read_text().strip() == "product finding"
+
+    def test_no_crash_if_workspace_dir_missing(self, tmp_path):
+        """_persist_line is no-op if workspace dir doesn't exist yet."""
+        launcher = AgentLauncher(tmp_path)
+        # Should not raise
+        launcher._persist_line("opp-nonexistent", "some line")

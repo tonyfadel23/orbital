@@ -17,6 +17,28 @@ class AgentLauncher:
         self._session_ids: dict[str, str] = {}
         self._last_output_time: dict[str, float] = {}
 
+    # --- Output persistence ---
+
+    def _output_log_path(self, key: str) -> Path:
+        parts = key.split(":", 1)
+        opp_id = parts[0]
+        suffix = f"-{parts[1]}" if len(parts) > 1 else ""
+        return self.project_root / "data" / "workspaces" / opp_id / f"output{suffix}.log"
+
+    def _persist_line(self, key: str, line: str):
+        path = self._output_log_path(key)
+        if path.parent.exists():
+            with open(path, "a") as f:
+                f.write(line + "\n")
+
+    def _load_persisted_output(self, key: str) -> list[str]:
+        path = self._output_log_path(key)
+        if not path.exists():
+            return []
+        lines = path.read_text().splitlines()
+        self._output[key] = deque(lines, maxlen=200)
+        return lines
+
     def launch(self, opp_id: str, command: str) -> bool:
         if opp_id in self._processes and self._processes[opp_id].poll() is None:
             return False  # already running
@@ -24,6 +46,7 @@ class AgentLauncher:
         # Add separator if relaunching after exit (resume)
         if opp_id in self._output and len(self._output[opp_id]) > 0:
             self._output[opp_id].append("--- RESUMED ---")
+            self._persist_line(opp_id, "--- RESUMED ---")
 
         proc = subprocess.Popen(
             command,
@@ -83,6 +106,7 @@ class AgentLauncher:
             self._output[opp_id].clear()
         self._last_output_time.pop(opp_id, None)
         self._session_ids.pop(opp_id, None)
+        self._output_log_path(opp_id).unlink(missing_ok=True)
         return True
 
     def send_input(self, opp_id: str, text: str) -> bool:
@@ -106,7 +130,11 @@ class AgentLauncher:
         """Return all output across all turns (including resumed sessions)."""
         buf = self._output.get(opp_id)
         if not buf:
-            return []
+            # Try loading from disk (survives server restart)
+            loaded = self._load_persisted_output(opp_id)
+            if not loaded:
+                return []
+            return [line for line in loaded if line != "--- RESUMED ---"]
         return [line for line in buf if line != "--- RESUMED ---"]
 
     def get_latest_output(self, opp_id: str, lines: int = 200) -> list[str]:
@@ -211,6 +239,7 @@ class AgentLauncher:
             for line in proc.stdout:
                 stripped = line.rstrip("\n")
                 self._output[opp_id].append(stripped)
+                self._persist_line(opp_id, stripped)
                 self._last_output_time[opp_id] = time.time()
                 # Extract session_id from stream-json output
                 if opp_id not in self._session_ids:

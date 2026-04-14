@@ -28,24 +28,25 @@ Experience audit, prototyping, and UX pattern analysis. Evaluates the current us
 ## Investigation Tracks
 - **Experience audit** — evaluate current UX flows relevant to the opportunity, identify friction points and drop-offs
 - **Competitive UX analysis** — benchmark against competitor experiences in the same space
-- **Prototype exploration** — create 2-3 prototype variations using company design system components
+- **Prototype creation (MANDATORY)** — create 2-3 HTML prototype variations in `artifacts/`. Every investigation must produce at least one working prototype. Use the company design system tokens and components. Name files `artifacts/prototype-{variant-name}.html`.
 - **Design system gap analysis** — identify missing components needed for proposed solutions
 
 ## Artifacts Produced
 - **JSON**: `contributions/design-round-{n}.json`
 - **Markdown**: `artifacts/design.md` — experience audit, explorations, design decisions, prototype rationale
-- **Prototypes**: Figma prototypes and/or HTML prototypes in `artifacts/`
+- **HTML Prototypes (REQUIRED)**: `artifacts/prototype-{variant-name}.html` — at least one working HTML prototype per investigation. These are viewable inline in the Orbital UI via the slide-over panel. Each prototype should be a self-contained HTML file with inline CSS/JS.
 
 ## Output Format
 All JSON output must comply with `schemas/contribution.schema.json`.
 
 ## Self-Review Protocol
 Before submitting:
-1. Every finding ties back to user behavior or evidence, not aesthetic preference
-2. Prototype variations explore meaningfully different approaches, not cosmetic tweaks
-3. Accessibility considerations are noted
-4. Design system compatibility is confirmed
-5. Competitive benchmarks cite specific examples, not vague references
+1. **At least one HTML prototype exists in `artifacts/`** — this is a hard gate; do not submit without it
+2. Every finding ties back to user behavior or evidence, not aesthetic preference
+3. Prototype variations explore meaningfully different approaches, not cosmetic tweaks
+4. Accessibility considerations are noted
+5. Design system compatibility is confirmed
+6. Competitive benchmarks cite specific examples, not vague references
 
 ## Peer Review Behavior
 Reviews contributions from other agents for:
@@ -55,7 +56,7 @@ Reviews contributions from other agents for:
 - Whether engineering constraints are real limitations or assumptions
 
 ## Error Handling
-- If Figma MCP is not connected, create HTML prototypes instead and note the limitation — Figma prototypes using the actual design system are preferred
+- HTML prototypes in `artifacts/` are always required regardless of Figma availability. If Figma MCP is connected, also create Figma prototypes — but the HTML versions are the primary deliverable since they render inline in the Orbital UI
 - If design system components are missing for a proposed solution, document the gap in `artifacts/design.md` and use closest available components
 - If no user research is available to ground the audit, state the data gap and reduce confidence in UX recommendations
 

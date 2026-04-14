@@ -84,6 +84,19 @@ def launch_start(opp_id: str, request: Request):
 def launch_assemble(opp_id: str, request: Request):
     bridge = request.app.state.cli_bridge
     launcher = request.app.state.launcher
+    workspace_svc = request.app.state.workspace_svc
+    quality_svc = request.app.state.quality_gate_svc
+
+    # Auto-transition aligning → framed when framing quality passes
+    opp = workspace_svc.get_opportunity(opp_id)
+    if opp and opp.get("status") == "aligning":
+        try:
+            report = quality_svc.check_framing_quality(opp_id)
+            if report.overall_passed:
+                workspace_svc.update_opportunity(opp_id, {"status": "framed"})
+        except ValueError:
+            pass  # workspace not found — let downstream handler raise 404
+
     try:
         command = bridge.generate_assemble_command(opp_id)
     except FileNotFoundError:

@@ -269,10 +269,13 @@ class CliBridge:
             tracks = entry.get("investigation_tracks", [])
             tracks_lines = []
             for t in tracks:
-                tracks_lines.append(
-                    f"- Track: {t['track']}\n  Question: {t['question']}\n  "
-                    f"Expected artifacts: {', '.join(t.get('expected_artifacts', []))}"
-                )
+                if isinstance(t, str):
+                    tracks_lines.append(f"- {t}")
+                else:
+                    tracks_lines.append(
+                        f"- Track: {t['track']}\n  Question: {t['question']}\n  "
+                        f"Expected artifacts: {', '.join(t.get('expected_artifacts', []))}"
+                    )
             tracks_text = "\n".join(tracks_lines)
 
             prompt = (

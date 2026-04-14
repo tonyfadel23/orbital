@@ -212,8 +212,8 @@ class TestLaunchRouter:
             mock_launch.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_assemble_rejects_aligning_status(self, client, tmp_data_dir):
-        """POST /api/launch/{opp_id}/assemble returns 400 for aligning status."""
+    async def test_assemble_rejects_aligning_incomplete_framing(self, client, tmp_data_dir):
+        """POST /api/launch/{opp_id}/assemble returns 400 for aligning with incomplete framing."""
         ws_dir = tmp_data_dir / "workspaces" / "opp-draft-assemble"
         ws_dir.mkdir(parents=True)
         for d in ("contributions", "reviews", "artifacts"):
@@ -228,6 +228,45 @@ class TestLaunchRouter:
         (ws_dir / "opportunity.json").write_text(json.dumps(opp, indent=2))
         resp = await client.post("/api/launch/opp-draft-assemble/assemble")
         assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_assemble_auto_transitions_aligning_to_framed(self, client, app, tmp_data_dir):
+        """POST /api/launch/{opp_id}/assemble auto-transitions aligning→framed when framing quality passes."""
+        ws_dir = tmp_data_dir / "workspaces" / "opp-auto-frame"
+        ws_dir.mkdir(parents=True)
+        for d in ("contributions", "reviews", "artifacts"):
+            (ws_dir / d).mkdir()
+        # Fully framed opportunity — passes framing quality (score >= 0.8)
+        opp = {
+            "id": "opp-auto-frame", "type": "hypothesis",
+            "title": "HMW improve checkout conversion for Pro subscribers",
+            "description": "Pro subscribers show 15% lower checkout completion than non-Pro users despite having free delivery. This investigation explores why and identifies solutions." * 2,
+            "context_refs": ["L1-global"],
+            "assumptions": [
+                {"id": "asm-001", "content": "Pro users abandon at payment step", "status": "untested", "importance": "critical"},
+                {"id": "asm-002", "content": "Delivery ETA is not visible enough", "status": "untested", "importance": "high"},
+                {"id": "asm-003", "content": "Savings messaging is unclear", "status": "untested", "importance": "medium"},
+            ],
+            "success_signals": ["Checkout rate +5%", "Cart abandonment -10%", "Pro NPS +3"],
+            "kill_signals": ["No measurable change at week 4", "Pro churn increases", "Support tickets spike"],
+            "status": "aligning",
+            "roster": None, "decision": None,
+            "created_at": "2026-04-14T01:00:00Z",
+            "updated_at": "2026-04-14T01:00:00Z",
+        }
+        (ws_dir / "opportunity.json").write_text(json.dumps(opp, indent=2))
+
+        launcher = app.state.launcher
+        with patch.object(launcher, "launch", return_value=True) as mock_launch:
+            resp = await client.post("/api/launch/opp-auto-frame/assemble")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "launched"
+            mock_launch.assert_called_once()
+
+        # Verify status was transitioned to framed
+        updated = json.loads((ws_dir / "opportunity.json").read_text())
+        assert updated["status"] == "framed"
 
     @pytest.mark.asyncio
     async def test_assemble_rejects_opportunity_with_roster(self, client, tmp_data_dir):

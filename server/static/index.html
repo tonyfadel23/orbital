@@ -10,16 +10,37 @@
 
 <div id="app">
   <nav id="top-nav">
-    <span id="logo" onclick="navigate('dashboard')">ORBITAL</span>
-    <span id="nav-back" class="d-none" onclick="navigate('dashboard')">&#8592;</span>
+    <button id="sidebar-toggle" style="display:none;background:none;border:none;color:var(--text-secondary);font-size:20px;cursor:pointer;padding:0 4px;" onclick="toggleLeftSidebar()">&#9776;</button>
+    <span id="logo" onclick="navigate('home')">ORBITAL</span>
+    <span id="nav-back" class="d-none" onclick="navigate('home')">&#8592;</span>
     <span id="nav-context" class="d-none"></span>
-    <span id="nav-settings" onclick="navigate('settings')" title="Settings" style="margin-left:auto;cursor:pointer;font-size:18px;opacity:0.6;transition:opacity 0.15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">&#9881;</span>
-    <div class="ws-dropdown" id="nav-ws" style="margin-left:8px;">
+    <div class="ws-dropdown" id="nav-ws" style="margin-left:auto;">
       <div class="live-badge live-badge--clickable" id="ws-status" onclick="toggleWsDropdown()"><span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span></div>
       <div class="ws-dropdown-menu d-none" id="ws-menu"></div>
     </div>
   </nav>
-  <div id="main"></div>
+  <div id="app-body">
+    <aside id="left-sidebar" class="left-sidebar d-none">
+      <div class="left-sidebar__header">
+        <span class="left-sidebar__logo" onclick="navigate('home')">ORBITAL</span>
+      </div>
+      <nav class="left-sidebar__nav">
+        <a class="left-sidebar__item active" data-view="home" onclick="navigate('home')">
+          <span class="left-sidebar__icon">&#9678;</span> Home
+        </a>
+        <a class="left-sidebar__item" data-view="skills" onclick="navigate('skills')">
+          <span class="left-sidebar__icon">&#9733;</span> Skills
+        </a>
+        <a class="left-sidebar__item" data-view="quality" onclick="navigate('quality')">
+          <span class="left-sidebar__icon">&#10003;</span> Quality
+        </a>
+        <a class="left-sidebar__item" data-view="settings" onclick="navigate('settings')">
+          <span class="left-sidebar__icon">&#9881;</span> Settings
+        </a>
+      </nav>
+    </aside>
+    <div id="main"></div>
+  </div>
 </div>
 
 <div id="detail-drawer" class="glass">
@@ -812,16 +833,22 @@ function showNodeDetail(node) {
 // ROUTER
 // ════════════════════════════════════════════════════════════
 
+const SIDEBAR_VIEWS = ['home', 'skills', 'quality', 'settings'];
+
 function updateNav(view, params) {
   const back = document.getElementById('nav-back');
   const ctx = document.getElementById('nav-context');
   const wsBadge = document.getElementById('nav-ws');
+  const logo = document.getElementById('logo');
   if (!back || !ctx) return;
-  const hasContext = (view === 'workspace' || view === 'orb') && params?.opp_id;
-  if (view === 'settings') {
-    back.style.display = '';
-    ctx.style.display = '';
-    ctx.textContent = 'Settings';
+
+  const isSidebarView = SIDEBAR_VIEWS.includes(view);
+  const hasContext = view === 'orb' && params?.opp_id;
+
+  if (isSidebarView) {
+    // Sidebar views: top nav is minimal (sidebar has logo + settings)
+    back.style.display = 'none';
+    ctx.style.display = 'none';
   } else if (hasContext) {
     back.style.display = '';
     ctx.style.display = '';
@@ -833,6 +860,11 @@ function updateNav(view, params) {
   }
   // Only show WS badge on views that use WebSocket
   if (wsBadge) wsBadge.style.display = hasContext ? '' : 'none';
+}
+
+function toggleLeftSidebar() {
+  const sidebar = document.getElementById('left-sidebar');
+  sidebar.classList.toggle('open');
 }
 
 async function navigate(view, params) {
@@ -854,6 +886,23 @@ async function navigate(view, params) {
   if (wsBadge) wsBadge.innerHTML = '<span class="status-dot" style="background:var(--text-muted)"></span> offline <span class="ws-chevron">▾</span>';
 
   state.view = view;
+
+  // Sidebar visibility
+  const showSidebar = SIDEBAR_VIEWS.includes(view);
+  const sidebar = document.getElementById('left-sidebar');
+  const appBody = document.getElementById('app-body');
+  if (showSidebar) {
+    sidebar.classList.remove('d-none');
+    appBody.classList.add('app-body--sidebar');
+    sidebar.classList.remove('open'); // close mobile overlay on nav
+    document.querySelectorAll('.left-sidebar__item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === view);
+    });
+  } else {
+    sidebar.classList.add('d-none');
+    appBody.classList.remove('app-body--sidebar');
+  }
+
   updateNav(view, params);
 
   // Update hash without re-triggering hashchange
@@ -861,6 +910,12 @@ async function navigate(view, params) {
     ? `#orb/${params.opp_id}`
     : view === 'orb'
       ? `#orb/new`
+    : view === 'skills' && params?.skill_id
+      ? `#skills/${params.skill_id}`
+    : view === 'skills'
+      ? '#skills'
+    : view === 'quality'
+      ? '#quality'
     : view === 'settings'
       ? '#settings'
       : '#';
@@ -872,7 +927,12 @@ async function navigate(view, params) {
   main.scrollTop = 0;
 
   switch (view) {
-    case 'dashboard': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderDashboard(main); break;
+    case 'home': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderDashboard(main); break;
+    case 'skills': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto';
+      if (params?.skill_id) await renderSkillDetail(main, params.skill_id);
+      else await renderSkills(main);
+      break;
+    case 'quality': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderQuality(main); break;
     case 'orb': main.style.padding = '0'; main.style.overflow = 'hidden'; await renderOrb(main, params); break;
     case 'settings': main.style.padding = '96px 24px 24px 24px'; main.style.overflow = 'auto'; await renderSettings(main); break;
     default: main.innerHTML = '<div class="empty-state"><div class="empty-text">Unknown view</div></div>';
@@ -985,7 +1045,7 @@ async function killProcess(key) {
 async function deleteWorkspace(id, title) {
   if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
   const resp = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
-  if (resp.ok) navigate('dashboard');
+  if (resp.ok) navigate('home');
 }
 
 
@@ -1048,7 +1108,7 @@ async function renderOrb(el, params) {
           <div class="empty-text">Could not load workspace</div>
           <p style="color:var(--text-muted);margin:8px 0 16px">The workspace may have been deleted or the server is unreachable.</p>
           <a href="#" onclick="navigate('orb',{opp_id:'${opp_id}'});return false" class="btn btn--sm">Retry</a>
-          <a href="#" onclick="navigate('dashboard');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
+          <a href="#" onclick="navigate('home');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
         </div>`;
         return;
       }
@@ -1060,7 +1120,7 @@ async function renderOrb(el, params) {
         <div class="empty-text">Could not load workspace</div>
         <p style="color:var(--text-muted);margin:8px 0 16px">${err.message || 'Network error'}</p>
         <a href="#" onclick="navigate('orb',{opp_id:'${opp_id}'});return false" class="btn btn--sm">Retry</a>
-        <a href="#" onclick="navigate('dashboard');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
+        <a href="#" onclick="navigate('home');return false" class="btn btn--sm btn--ghost" style="margin-left:8px">Dashboard</a>
       </div>`;
       return;
     }
@@ -1135,7 +1195,7 @@ function renderChatPanel(el, opp_id, opp) {
 
   el.innerHTML = `
     <div style="padding:72px 20px 0 20px">
-      <div class="back-link" onclick="navigate('dashboard')">&larr; All Orbs</div>
+      <div class="back-link" onclick="navigate('home')">&larr; All Orbs</div>
     </div>
     <div class="setup-chat-feed" id="setup-feed">
       <div class="setup-chat-empty">
@@ -5110,6 +5170,414 @@ function toggleFramingBreakdown() {
 }
 
 // ════════════════════════════════════════════════════════════
+// SKILLS PAGE
+// ════════════════════════════════════════════════════════════
+
+const SKILLS_CATALOG = {
+  workflow: [
+    { id: 'agree', name: '/agree', phase: '0', phaseLabel: 'Frame',
+      description: 'Refine opportunity framing through multi-turn conversation. Define the HMW, assumptions, success/kill signals.',
+      inputs: ['Title', 'Description', 'Assumptions', 'Success signals', 'Kill signals'],
+      prerequisite: 'New workspace (aligning)',
+      qualityGate: 'Framing quality — 7 dimensions, passes at >= 0.8',
+      action: 'createAndFrame' },
+    { id: 'assemble', name: '/assemble', phase: '1', phaseLabel: 'Assemble',
+      description: 'Assemble the investigation team. Select agents from the roster, configure tools and tracks.',
+      inputs: ['Framed opportunity'],
+      prerequisite: 'Framed workspace (status: framed)',
+      qualityGate: 'Roster completeness',
+      action: 'launchAssemble' },
+    { id: 'orbit', name: '/orbit', phase: '2-5', phaseLabel: 'Investigate',
+      description: 'Full investigation pipeline: investigate, peer review, synthesize solutions, dot-vote, and produce decision brief.',
+      inputs: ['Assembled roster'],
+      prerequisite: 'Assembled workspace (status: assembled)',
+      qualityGate: 'Investigation quality — 6 gates',
+      action: 'launchStart' },
+    { id: 'prototype', name: '/prototype', phase: 'standalone', phaseLabel: 'Standalone',
+      description: 'Create prototype variations and run customer voice review. Works on any workspace with contributions.',
+      inputs: ['Workspace with findings'],
+      prerequisite: 'Any active workspace',
+      qualityGate: null,
+      action: 'launchInOrb' },
+    { id: 'execute', name: '/execute', phase: 'standalone', phaseLabel: 'Standalone',
+      description: 'Tech Lead mode: blast radius analysis, task breakdown, and Linear task creation.',
+      inputs: ['Decided opportunity'],
+      prerequisite: 'Workspace with decision',
+      qualityGate: null,
+      action: 'launchInOrb' },
+    { id: 'explore', name: '/explore', phase: 'standalone', phaseLabel: 'Standalone',
+      description: 'Parallel solution branches with lopsided OST. Explore divergent approaches simultaneously.',
+      inputs: ['Workspace with synthesis'],
+      prerequisite: 'Workspace with solutions',
+      qualityGate: null,
+      action: 'launchInOrb' },
+  ],
+  evidence: [
+    { id: 'data-query', name: 'Data Query', description: 'Run BigQuery queries for quantitative evidence', tool: 'bigquery' },
+    { id: 'metrics-pull', name: 'Metrics Pull', description: 'Pull metrics from Looker or Tableau dashboards', tool: 'looker' },
+    { id: 'doc-search', name: 'Doc Search', description: 'Search Google Drive for relevant documents and research', tool: 'google-drive' },
+    { id: 'slack-signal', name: 'Slack Signal', description: 'Extract signals from Slack channels and threads', tool: 'slack' },
+    { id: 'market-intel', name: 'Market Intel', description: 'Web search for competitive and market intelligence', tool: 'web-search' },
+    { id: 'app-reviews', name: 'App Reviews', description: 'Analyze app store reviews for user sentiment patterns', tool: 'web-search' },
+  ]
+};
+
+async function renderSkills(el) {
+  const phases = [
+    { label: 'Frame', id: '0' },
+    { label: 'Assemble', id: '1' },
+    { label: 'Investigate', id: '2-5' },
+    { label: 'Standalone', id: 'standalone' },
+  ];
+
+  el.innerHTML = `
+    <div class="section-wide">
+      <div class="flex items-center justify-between mb-24">
+        <div>
+          <div class="label">Skills</div>
+          <div class="heading">Workflow & Evidence Tools</div>
+        </div>
+      </div>
+
+      <div class="skills-pipeline mb-24">
+        ${phases.map(p => `<div class="skills-pipeline__step" data-phase="${p.id}">${p.label}</div>`).join('<div class="skills-pipeline__connector"></div>')}
+      </div>
+
+      <div class="section-label section-label--accent" style="margin-bottom:var(--space-6)">WORKFLOW SKILLS</div>
+      <div class="skills-grid" style="margin-bottom:var(--space-12)">
+        ${SKILLS_CATALOG.workflow.map(s => {
+          const phaseColor = s.phase === '0' ? '#10B981' : s.phase === '1' ? '#3B82F6' : s.phase === '2-5' ? '#8B5CF6' : '#F97316';
+          return `
+          <div class="card card-clickable skill-card" onclick="navigate('skills',{skill_id:'${s.id}'})">
+            <div class="skill-card__header">
+              <span class="chip chip--status" style="background:${phaseColor}22;color:${phaseColor}">Phase ${s.phase}</span>
+            </div>
+            <div class="skill-card__name">${esc(s.name)}</div>
+            <div class="skill-card__desc">${esc(s.description)}</div>
+            <div class="skill-card__meta">
+              <span>Needs: ${esc(s.prerequisite)}</span>
+              ${s.qualityGate ? `<span>Quality: ${esc(s.qualityGate)}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="section-label section-label--accent" style="margin-bottom:var(--space-6)">EVIDENCE SKILLS</div>
+      <div class="skills-grid">
+        ${SKILLS_CATALOG.evidence.map(s => `
+          <div class="card skill-card">
+            <div class="skill-card__header">
+              <span class="chip chip--status" style="background:rgba(59,130,246,0.15);color:#3B82F6">${esc(s.tool)}</span>
+            </div>
+            <div class="skill-card__name">${esc(s.name)}</div>
+            <div class="skill-card__desc">${esc(s.description)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+async function renderSkillDetail(el, skillId) {
+  const skill = SKILLS_CATALOG.workflow.find(s => s.id === skillId)
+    || SKILLS_CATALOG.evidence.find(s => s.id === skillId);
+
+  if (!skill) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">Skill not found</div></div>';
+    return;
+  }
+
+  const isWorkflow = SKILLS_CATALOG.workflow.includes(skill);
+  const phaseColor = skill.phase === '0' ? '#10B981' : skill.phase === '1' ? '#3B82F6' : skill.phase === '2-5' ? '#8B5CF6' : '#F97316';
+
+  // Load workspaces for the "Run" section
+  let workspaces = [];
+  try { workspaces = await api.get('workspaces') || []; } catch (e) {}
+
+  // Filter workspaces by compatible status for pipeline skills
+  const statusMap = { agree: ['aligning'], assemble: ['framed'], orbit: ['assembled'] };
+  const compatibleStatuses = statusMap[skillId] || [];
+  const compatibleWs = compatibleStatuses.length
+    ? workspaces.filter(w => compatibleStatuses.includes(w.status))
+    : workspaces;
+
+  // Reset chat state so embedded chat starts clean
+  state.setupOppId = null;
+  state._setupState = 'idle';
+  state._setupFeedLen = 0;
+  state._setupOutputLen = 0;
+  state._setupHasPlan = false;
+  state._setupPlanContent = '';
+  state._agentStartTime = 0;
+  state._agentDuration = 0;
+  state._totalTokens = 0;
+  state._isStale = false;
+  state._noNewOutputCount = 0;
+  state._editMode = false;
+
+  el.innerHTML = `
+    <div class="section-wide">
+      <div style="margin-bottom:var(--space-8)">
+        <a onclick="navigate('skills')" style="cursor:pointer;color:var(--text-muted);font-size:var(--text-sm)">&larr; All Skills</a>
+      </div>
+
+      <div class="flex items-center gap-12" style="margin-bottom:var(--space-4)">
+        ${isWorkflow ? `<span class="chip chip--status" style="background:${phaseColor}22;color:${phaseColor}">Phase ${skill.phase}</span>` : ''}
+        <h2 style="font-size:var(--text-2xl);font-weight:600">${esc(skill.name)}</h2>
+      </div>
+      <p style="color:var(--text-secondary);margin-bottom:var(--space-10);max-width:640px">${esc(skill.description)}</p>
+
+      ${isWorkflow ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-6);margin-bottom:var(--space-10)">
+        <div class="card" style="padding:var(--space-8)">
+          <div class="section-label" style="margin-bottom:var(--space-4)">Prerequisites</div>
+          <p style="color:var(--text-secondary);font-size:var(--text-sm)">${esc(skill.prerequisite)}</p>
+        </div>
+
+        <div class="card" style="padding:var(--space-8)">
+          <div class="section-label" style="margin-bottom:var(--space-4)">Inputs</div>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:var(--space-2)">
+            ${(skill.inputs || []).map(i => `<li style="color:var(--text-secondary);font-size:var(--text-sm)"><span style="color:var(--text-muted);margin-right:6px">&#8226;</span>${esc(i)}</li>`).join('')}
+          </ul>
+        </div>
+
+        ${skill.qualityGate ? `
+        <div class="card" style="padding:var(--space-8)">
+          <div class="section-label" style="margin-bottom:var(--space-4)">Quality Gate</div>
+          <p style="color:var(--text-secondary);font-size:var(--text-sm)">${esc(skill.qualityGate)}</p>
+        </div>` : ''}
+      </div>
+
+      <div class="section-label section-label--accent" style="margin-bottom:var(--space-6)">RUN THIS SKILL</div>
+
+      ${skill.id === 'agree' ? `
+      <!-- /agree: inline chat, first message creates workspace -->
+      <div class="card" style="padding:0;overflow:hidden;height:500px;display:flex;flex-direction:column">
+        <div class="setup-chat-feed" id="setup-feed">
+          <div class="setup-chat-empty">
+            <div class="setup-chat-empty-inner">
+              <div class="setup-chat-empty-title">/${esc(skill.id)}</div>
+              <div class="setup-chat-empty-hint">Describe what you want to investigate. I'll help you shape it.</div>
+            </div>
+          </div>
+        </div>
+        <div class="chat-input-bar" id="setup-input-bar">
+          <div class="chat-activity" id="setup-activity"></div>
+          <div class="chat-hints d-none" id="setup-hints"></div>
+          <div class="chat-input-wrap">
+            <textarea class="chat-input" id="setup-input"
+              placeholder="What should we investigate?"
+              rows="1" onkeydown="handleSetupKey(event)"
+              oninput="handleSetupInput(event)"></textarea>
+            <button class="chat-send-btn" id="setup-send-btn" onclick="sendSetupMessage()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      ` : `
+      <!-- Other skills: workspace selector + chat panel -->
+      <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+        <!-- Chat panel (hidden until workspace selected) -->
+        <div id="skill-chat-wrap" style="height:500px;display:none;flex-direction:column">
+          <div style="padding:var(--space-4) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:between">
+            <span id="skill-chat-title" style="font-weight:500;font-size:var(--text-sm);color:var(--text-secondary)"></span>
+            <button onclick="document.getElementById('skill-chat-wrap').style.display='none';document.getElementById('skill-ws-selector').style.display='block'" style="margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:var(--text-sm)">&larr; Back</button>
+          </div>
+          <div class="setup-chat-feed" id="setup-feed" style="flex:1">
+            <div class="setup-chat-empty">
+              <div class="setup-chat-empty-inner">
+                <div class="setup-chat-empty-title">/${esc(skill.id)}</div>
+                <div class="setup-chat-empty-hint">Running...</div>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-bar" id="setup-input-bar">
+            <div class="chat-activity" id="setup-activity"></div>
+            <div class="chat-hints d-none" id="setup-hints"></div>
+            <div class="chat-input-wrap">
+              <textarea class="chat-input" id="setup-input"
+                placeholder="Send a message..."
+                rows="1" onkeydown="handleSetupKey(event)"
+                oninput="handleSetupInput(event)"></textarea>
+              <button class="chat-send-btn" id="setup-send-btn" onclick="sendSetupMessage()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Workspace selector -->
+        <div id="skill-ws-selector" style="padding:var(--space-8)">
+          ${compatibleWs.length > 0 ? `
+            <p style="color:var(--text-secondary);font-size:var(--text-sm);margin-bottom:var(--space-6)">Select a workspace to run /${esc(skill.id)} on:</p>
+            <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+              ${compatibleWs.map(w => `
+                <a class="card card-clickable" style="padding:var(--space-4) var(--space-6);cursor:pointer" onclick="launchSkillOnWorkspace('${skill.id}','${w.id}','${esc(w.title || w.id)}')">
+                  <span style="font-weight:500">${esc(w.title || w.id)}</span>
+                  <span class="chip chip--tag" style="margin-left:auto">${w.status || 'unknown'}</span>
+                </a>
+              `).join('')}
+            </div>
+          ` : `
+            <p style="color:var(--text-muted);font-size:var(--text-sm)">No workspaces in compatible status (${compatibleStatuses.join(', ') || 'any'}). Complete earlier phases first.</p>
+          `}
+        </div>
+      </div>
+      `}
+      ` : `
+      <div class="card" style="padding:var(--space-8)">
+        <p style="color:var(--text-secondary);font-size:var(--text-sm)">Evidence skills run as part of agent investigations. They are configured via the tool access layer in each agent's roster entry.</p>
+      </div>
+      `}
+    </div>`;
+}
+
+async function launchSkillOnWorkspace(skillId, oppId, title) {
+  // Show chat panel, hide workspace selector
+  const chatWrap = document.getElementById('skill-chat-wrap');
+  const wsSelector = document.getElementById('skill-ws-selector');
+  const chatTitle = document.getElementById('skill-chat-title');
+  if (chatWrap) chatWrap.style.display = 'flex';
+  if (wsSelector) wsSelector.style.display = 'none';
+  if (chatTitle) chatTitle.textContent = title || oppId;
+
+  // Reset state for this workspace
+  state.setupOppId = oppId;
+  state._setupState = 'running';
+  state._setupFeedLen = 0;
+  state._setupOutputLen = 0;
+  state._setupHasPlan = false;
+  state._setupPlanContent = '';
+  state._agentStartTime = Date.now();
+  state._agentDuration = 0;
+  state._totalTokens = 0;
+  updateActivityIndicator();
+  updateSendButton(true);
+
+  // Remove empty state from feed
+  const feed = document.getElementById('setup-feed');
+  const empty = feed?.querySelector('.setup-chat-empty');
+  if (empty) empty.remove();
+
+  // Launch the appropriate endpoint
+  const endpoint = skillId === 'assemble'
+    ? `launch/${oppId}/assemble`
+    : skillId === 'dot-vote'
+    ? `launch/${oppId}/dot-vote`
+    : skillId === 'decision-brief'
+    ? `launch/${oppId}/decision-brief`
+    : `launch/${oppId}/start`;
+  try {
+    await api.post(endpoint, {});
+  } catch (err) {
+    toast('Launch error: ' + err.message);
+    return;
+  }
+  connectOrbWS(oppId);
+  pollSetupAgent(oppId);
+}
+
+
+// ════════════════════════════════════════════════════════════
+// QUALITY CHECKS PAGE
+// ════════════════════════════════════════════════════════════
+
+async function renderQuality(el) {
+  let workspaces = [];
+  try { workspaces = await api.get('workspaces') || []; } catch (e) {}
+
+  if (workspaces.length === 0) {
+    el.innerHTML = `
+      <div class="section-wide">
+        <div class="label">Quality Checks</div>
+        <div class="heading" style="margin-bottom:var(--space-10)">Investigation Quality</div>
+        <div class="empty-state"><div class="empty-text">No workspaces yet. Create an investigation to see quality reports.</div></div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="section-wide">
+      <div class="label">Quality Checks</div>
+      <div class="heading" style="margin-bottom:var(--space-10)">Investigation Quality</div>
+      <div class="quality-summary" style="margin-bottom:var(--space-10)" id="quality-summary">
+        <div class="quality-stat"><span class="quality-stat__value" style="color:var(--text-muted)">...</span><span class="quality-stat__label">Loading</span></div>
+      </div>
+      <div class="workspace-grid" id="quality-grid">
+        ${workspaces.map(w => `
+          <div class="card" style="padding:var(--space-8)" id="qcard-${w.id}">
+            <div class="flex items-center justify-between" style="margin-bottom:var(--space-4)">
+              <span style="font-weight:600;font-size:var(--text-md)">${esc(w.title || w.id)}</span>
+              <span class="chip chip--tag">${w.status || 'unknown'}</span>
+            </div>
+            <div style="color:var(--text-muted);font-size:var(--text-xs)">Loading quality data...</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+
+  // Fetch quality data for each workspace in parallel
+  let passing = 0, warnings = 0;
+  await Promise.allSettled(workspaces.map(async (w) => {
+    const card = document.getElementById(`qcard-${w.id}`);
+    if (!card) return;
+    try {
+      let report = null;
+      const status = w.status || '';
+      const advancedStatuses = ['assembled', 'orbiting', 'scoring', 'decided'];
+      if (advancedStatuses.includes(status)) {
+        report = await api.get(`quality/${w.id}/investigation`);
+      } else {
+        report = await api.get(`quality/${w.id}/framing`);
+      }
+      if (!report) throw new Error('no data');
+
+      const score = report.weighted_score ?? report.overall_score ?? 0;
+      const passed = report.overall_passed ?? (score >= 0.8);
+      if (passed) passing++; else warnings++;
+
+      const pct = Math.round(score * 100);
+      const color = passed ? 'var(--color-accent)' : 'var(--color-counter)';
+      const gates = report.dimensions || report.gates || [];
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between" style="margin-bottom:var(--space-4)">
+          <a style="font-weight:600;font-size:var(--text-md);cursor:pointer;color:var(--text-primary)" onclick="navigate('orb',{opp_id:'${w.id}'})">${esc(w.title || w.id)}</a>
+          <span class="chip chip--tag">${w.status || 'unknown'}</span>
+        </div>
+        <div class="quality-score-bar">
+          <div class="quality-score-bar__fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:var(--space-3)">
+          <span style="font-size:var(--text-xs);color:var(--text-muted)">${passed ? 'Passed' : 'Needs work'}</span>
+          <span style="font-size:var(--text-xs);font-weight:600;color:${color}">${pct}%</span>
+        </div>
+        ${gates.length ? `<div style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-4)">
+          ${gates.map(g => {
+            const gPassed = g.passed ?? g.met ?? false;
+            const gName = g.name || g.gate || '';
+            return `<span class="chip chip--tag" style="background:${gPassed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'};color:${gPassed ? '#10B981' : '#EF4444'}">${esc(gName)}</span>`;
+          }).join('')}
+        </div>` : ''}
+      `;
+    } catch (e) {
+      card.querySelector('div:last-child').textContent = 'Quality data unavailable';
+      warnings++;
+    }
+  }));
+
+  // Update summary
+  const summary = document.getElementById('quality-summary');
+  if (summary) {
+    summary.innerHTML = `
+      <div class="quality-stat"><span class="quality-stat__value" style="color:var(--color-accent)">${passing}</span><span class="quality-stat__label">Passing</span></div>
+      <div class="quality-stat"><span class="quality-stat__value" style="color:${warnings > 0 ? 'var(--color-counter)' : 'var(--text-muted)'}">${warnings}</span><span class="quality-stat__label">Warnings</span></div>
+    `;
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
 // SETTINGS PAGE
 // ════════════════════════════════════════════════════════════
 
@@ -5271,8 +5739,15 @@ function routeFromHash() {
     if (tail === 'new' || !tail) { navigate('orb', {}); return; }
     navigate('orb', { opp_id: tail }); return;
   }
+  if (hash.startsWith('skills/')) {
+    const skill_id = hash.replace('skills/', '');
+    navigate('skills', { skill_id }); return;
+  }
+  if (hash === 'skills') { navigate('skills'); return; }
+  if (hash === 'quality') { navigate('quality'); return; }
   if (hash === 'settings') { navigate('settings'); return; }
-  navigate('dashboard');
+  if (hash === 'home' || hash === '') { navigate('home'); return; }
+  navigate('home');
 }
 
 window.addEventListener('hashchange', routeFromHash);

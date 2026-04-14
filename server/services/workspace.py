@@ -101,7 +101,24 @@ class WorkspaceService:
         }
 
     def list_contributions(self, opp_id: str) -> list[dict]:
-        return self._list_json_files(opp_id, "contributions")
+        d = self.workspaces_dir / opp_id / "contributions"
+        if not d.exists():
+            return []
+        result = []
+        for f in sorted(d.iterdir()):
+            if f.suffix != ".json":
+                continue
+            try:
+                data = json.loads(f.read_text())
+            except json.JSONDecodeError:
+                logger.warning("Corrupted contribution %s/%s", opp_id, f.name)
+                continue
+            result.append({
+                "filename": f.name,
+                "agent_function": data.get("agent_function", ""),
+                "findings": data.get("findings", []),
+            })
+        return result
 
     def list_reviews(self, opp_id: str) -> list[dict]:
         return self._list_json_files(opp_id, "reviews")
