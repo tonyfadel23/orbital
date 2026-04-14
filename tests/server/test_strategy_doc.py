@@ -97,3 +97,29 @@ class TestHtmlHasDotToc:
         result = builder.build()
         for i in range(1, 5):
             assert f'href="#act-{i}"' in result
+
+
+class TestCssCustomProperties:
+    def test_css_contains_custom_properties(self, builder):
+        result = builder.build()
+        for prop in ["--bg", "--surface", "--text-primary"]:
+            assert prop in result, f"Missing CSS custom property {prop}"
+
+
+class TestCssResponsive:
+    def test_css_contains_responsive_breakpoint(self, builder):
+        result = builder.build()
+        assert "768px" in result
+
+
+class TestCssPhoneFrame:
+    def test_css_phone_frame_class(self, builder):
+        result = builder.build()
+        assert ".phone-frame" in result
+
+
+class TestCssCollapsible:
+    def test_css_collapsible_classes(self, builder):
+        result = builder.build()
+        assert ".collapsible-toggle" in result
+        assert ".collapsible-panel" in result
