@@ -3319,8 +3319,26 @@ function renderSidebar(ws, opp_id) {
   }
   if (!overview) overview = '<div class="muted-hint" style="padding:16px 0">No synthesis or assumptions yet.</div>';
 
-  // ── Evidence tab: Contributions + Reviews + Artifacts ──
+  // ── Evidence tab: Artifacts (prototypes first) → Contributions → Reviews ──
   let evidence = '';
+  if (ws.artifacts?.length) {
+    const protos = ws.artifacts.filter(a => /prototype/i.test(a.filename));
+    const others = ws.artifacts.filter(a => !/prototype/i.test(a.filename));
+    const sorted = [...protos, ...others];
+    evidence += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Artifacts (${ws.artifacts.length})</div>
+        <div class="contrib-list">
+          ${sorted.map(a => {
+            const isProt = /prototype/i.test(a.filename);
+            return `<div class="contrib-item" onclick="toggleArtifact('${opp_id}','${a.filename}')">
+              <div class="contrib-dot" style="background:${isProt ? '#A78BFA' : 'var(--color-design, #8B5CF6)'}"></div>
+              <div class="contrib-name">${a.filename}</div>
+              ${isProt ? '<div class="contrib-badge" style="background:rgba(167,139,250,0.15);color:#A78BFA">proto</div>' : `<div class="contrib-badge">.${a.type || 'md'}</div>`}
+          </div>`}).join('')}
+        </div>
+      </div>`;
+  }
   if (ws.contributions?.length) {
     evidence += `
       <div class="sidebar-section">
@@ -3349,19 +3367,6 @@ function renderSidebar(ws, opp_id) {
                 <div class="contrib-dot bg-data"></div>
                 <div class="contrib-name">${r.filename}</div>
             </div>`).join('')}
-        </div>
-      </div>`;
-  }
-  if (ws.artifacts?.length) {
-    evidence += `
-      <div class="sidebar-section">
-        <div class="sidebar-section-title">Artifacts (${ws.artifacts.length})</div>
-        <div class="contrib-list">
-          ${ws.artifacts.map(a => `<div class="contrib-item" onclick="toggleArtifact('${opp_id}','${a.filename}')">
-              <div class="contrib-dot bg-design"></div>
-              <div class="contrib-name">${a.filename}</div>
-              <div class="contrib-badge">.${a.type || 'md'}</div>
-          </div>`).join('')}
         </div>
       </div>`;
   }
@@ -3747,6 +3752,125 @@ function renderContextSources(data) {
     </div>`;
   });
   return html;
+}
+
+function renderProblemGraph(canvasEl, opp, loadedContext) {
+  const canvas = canvasEl;
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight || 180;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // Build nodes
+  const nodes = [];
+  const edges = [];
+  const cx = W / 2, cy = H / 2;
+
+  // Central node: opportunity
+  nodes.push({ id: 'opp', label: 'HMW', x: cx, y: cy, r: 14, color: '#10B981', type: 'opportunity' });
+
+  // Assumptions — arc above
+  const assumptions = (opp.assumptions || []).map(normalizeAssumption);
+  const asmAngleSpan = Math.PI * 0.6;
+  const asmStart = Math.PI + (Math.PI - asmAngleSpan) / 2;
+  assumptions.forEach((a, i) => {
+    const angle = assumptions.length === 1 ? Math.PI * 1.5
+      : asmStart + (i / (assumptions.length - 1)) * asmAngleSpan;
+    const dist = 55 + Math.random() * 10;
+    nodes.push({ id: `asm-${i}`, label: `A${i+1}`, x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist, r: 8, color: '#F59E0B', type: 'assumption', data: a });
+    edges.push({ from: 'opp', to: `asm-${i}`, weight: 1 });
+  });
+
+  // Success signals — right arc
+  (opp.success_signals || []).forEach((s, i) => {
+    const angle = -Math.PI/4 + (i / Math.max(1, (opp.success_signals||[]).length - 1)) * (Math.PI/2);
+    const dist = 60;
+    nodes.push({ id: `ss-${i}`, label: 'S', x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist, r: 6, color: '#10B981', type: 'signal' });
+    edges.push({ from: 'opp', to: `ss-${i}`, weight: 0.5 });
+  });
+
+  // Kill signals — left arc
+  (opp.kill_signals || []).forEach((s, i) => {
+    const angle = Math.PI - Math.PI/4 + (i / Math.max(1, (opp.kill_signals||[]).length - 1)) * (Math.PI/2);
+    const dist = 60;
+    nodes.push({ id: `ks-${i}`, label: 'K', x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist, r: 6, color: '#EF4444', type: 'signal' });
+    edges.push({ from: 'opp', to: `ks-${i}`, weight: 0.5 });
+  });
+
+  // Source layers — below
+  loadedContext.forEach((c, i) => {
+    const angle = (Math.PI / 4) + (i / Math.max(1, loadedContext.length - 1)) * (Math.PI / 2);
+    const dist = 65;
+    nodes.push({ id: `src-${i}`, label: c.layerType, x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist, r: 7, color: '#8B5CF6', type: 'source', data: c });
+    edges.push({ from: 'opp', to: `src-${i}`, weight: 0.7 });
+  });
+
+  // Force relaxation (lightweight — 10 iterations)
+  for (let iter = 0; iter < 10; iter++) {
+    for (let i = 1; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[j].x - nodes[i].x;
+        const dy = nodes[j].y - nodes[i].y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        if (dist < 30) {
+          const push = (30 - dist) / 2;
+          const nx = dx / dist * push;
+          const ny = dy / dist * push;
+          nodes[i].x -= nx; nodes[i].y -= ny;
+          nodes[j].x += nx; nodes[j].y += ny;
+        }
+      }
+    }
+  }
+
+  // Draw edges
+  edges.forEach(e => {
+    const from = nodes.find(n => n.id === e.from);
+    const to = nodes.find(n => n.id === e.to);
+    if (!from || !to) return;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = `rgba(255,255,255,${0.08 + e.weight * 0.07})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Draw nodes
+  nodes.forEach(n => {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = n.color;
+    ctx.globalAlpha = n.type === 'opportunity' ? 1 : 0.7;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = `${n.type === 'opportunity' ? 'bold 9' : '8'}px ${getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() || 'monospace'}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(n.label, n.x, n.y);
+  });
+
+  // Legend — bottom left, small
+  const legendItems = [
+    { color: '#10B981', label: 'Opportunity' },
+    { color: '#F59E0B', label: 'Assumptions' },
+    { color: '#8B5CF6', label: 'Sources' },
+  ];
+  let lx = 6, ly = H - 8;
+  ctx.font = '7px ' + (getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() || 'monospace');
+  legendItems.forEach(l => {
+    ctx.fillStyle = l.color;
+    ctx.fillRect(lx, ly - 5, 6, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText(l.label, lx + 9, ly);
+    lx += ctx.measureText(l.label).width + 18;
+  });
 }
 
 async function renderContextGraph(panel) {
