@@ -1194,6 +1194,87 @@ html, body {
 }
 .gap-card .gap-field { font-weight: 600; }
 
+/* Context card — extracted facts */
+.ctx-card-section { margin-bottom: 10px; }
+.ctx-card-section__title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.ctx-card-fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.ctx-card-fact:hover { background: rgba(255,255,255,0.04); }
+.ctx-card-fact__text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.ctx-card-fact__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-accent);
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.ctx-card-fact__source {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+.ctx-card-overflow { /* hidden by default via inline style */ }
+.ctx-card-more {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.ctx-card-more:hover { text-decoration: underline; }
+.ctx-card-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.ctx-card-source-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.04);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.ctx-card-source-chip.clickable { cursor: pointer; }
+.ctx-card-source-chip.clickable:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+}
+
+/* Problem knowledge graph mini canvas */
+.problem-graph-canvas {
+  width: 100%;
+  height: 180px;
+  border-radius: var(--radius-sm);
+  background: rgba(0,0,0,0.2);
+  margin-top: 8px;
+}
+
 /* ── Investigation split (unified progressive layout) ────── */
 .orb-split {
   display: grid;
