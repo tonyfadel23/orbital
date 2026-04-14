@@ -172,3 +172,106 @@ class TestSanitizeHtml:
         assert '<script' not in result
         assert '<div>before</div>' in result
         assert '<div>after</div>' in result
+
+
+# --- Act 1 fixtures and tests ---
+
+
+@pytest.fixture
+def rich_workspace():
+    return {
+        "opportunity": {
+            "id": "opp-20260410-090000",
+            "title": "HMW make fresh groceries a habitual purchase on tMart?",
+            "description": "Users buy groceries once but don't return. We need to understand why.",
+            "type": "hypothesis",
+            "extracted_context": [
+                {"category": "metric", "fact": "tMart fresh grew 23% YoY", "value": "23%", "source_layer": "L2a-groceries", "relevance": "Growth exists"},
+                {"category": "metric", "fact": "Repeat rate is 18%", "value": "18%", "source_layer": "L2a-groceries", "relevance": "Low retention"},
+                {"category": "persona", "fact": "Young professionals prefer convenience", "value": None, "source_layer": "L1-global", "relevance": "Target segment"},
+            ],
+            "assumptions": [
+                {"id": "asm-001", "content": "Users want weekly delivery slots", "status": "untested", "importance": "high"},
+                {"id": "asm-002", "content": "Price is the main barrier", "status": "contradicted", "importance": "critical"},
+                {"id": "asm-003", "content": "Freshness perception drives repeat", "status": "supported", "importance": "medium"},
+            ],
+            "success_signals": ["Repeat rate > 30%", "Weekly active buyers +15%"],
+            "kill_signals": ["Unit economics negative after 3 months", "NPS < 20"],
+        },
+        "synthesis": {
+            "verdict_summary": "Proceed with grocery habit loop",
+            "recommendation": "proceed",
+            "solutions": [
+                {"id": "sol-001", "title": "Weekly Box", "description": "Subscription box", "archetype": "incremental",
+                 "ice_score": {"impact": 7, "confidence": 6, "ease": 8, "total": 336},
+                 "recommendation": "proceed", "status": "proposed"},
+            ],
+            "convergence": [],
+            "counter_signals": [],
+            "conflicts": [],
+            "evidence_summary": {"total_findings": 12, "by_function": {"market-analyst": 5, "ux-researcher": 4, "data-scientist": 3}},
+            "quality_score": {"assumption_coverage": 0.8, "evidence_balance": 0.7, "conflict_surfacing": 0.6, "artifact_relevance": 0.9, "overall": 0.75},
+        },
+        "contributions": [],
+    }
+
+
+@pytest.fixture
+def rich_builder(rich_workspace):
+    return StrategyDocBuilder(workspace=rich_workspace, votes=[], prototypes={})
+
+
+class TestAct1HmwTitle:
+    def test_act1_renders_hmw_title(self, rich_builder):
+        result = rich_builder.build()
+        assert "HMW make fresh groceries" in result
+
+
+class TestAct1TypeBadge:
+    def test_act1_renders_type_badge(self, rich_builder):
+        result = rich_builder.build()
+        assert "hypothesis" in result.lower()
+
+
+class TestAct1Description:
+    def test_act1_renders_description(self, rich_builder):
+        result = rich_builder.build()
+        assert "Users buy groceries once" in result
+
+
+class TestAct1ContextByCategory:
+    def test_act1_groups_context_by_category(self, rich_builder):
+        result = rich_builder.build()
+        assert "metric" in result.lower()
+        assert "persona" in result.lower()
+        assert "tMart fresh grew 23% YoY" in result
+
+
+class TestAct1ContextValues:
+    def test_act1_context_shows_values(self, rich_builder):
+        result = rich_builder.build()
+        assert "23%" in result
+        assert "18%" in result
+
+
+class TestAct1Assumptions:
+    def test_act1_renders_assumptions_with_status(self, rich_builder):
+        result = rich_builder.build()
+        assert "Users want weekly delivery slots" in result
+        assert "untested" in result.lower()
+        assert "contradicted" in result.lower()
+        assert "supported" in result.lower()
+
+
+class TestAct1Signals:
+    def test_act1_renders_signals(self, rich_builder):
+        result = rich_builder.build()
+        assert "Repeat rate &gt; 30%" in result or "Repeat rate > 30%" in result
+        assert "Unit economics negative" in result
+
+
+class TestAct1EmptyContext:
+    def test_act1_handles_empty_context(self, builder):
+        """Minimal workspace with no extracted_context should not crash."""
+        result = builder.build()
+        assert 'id="act-1"' in result

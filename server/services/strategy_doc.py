@@ -378,7 +378,124 @@ document.addEventListener('DOMContentLoaded', () => {
         return content
 
     def _render_act1_problem(self) -> str:
-        return ""
+        parts: list[str] = []
+        esc = html.escape
+
+        # --- Hero ---
+        title = esc(self.opp.get("title", ""))
+        if title:
+            parts.append(f"<h1>{title}</h1>")
+
+        opp_type = self.opp.get("type", "")
+        if opp_type:
+            parts.append(
+                f'<span class="badge" style="background:var(--accent);color:#fff">'
+                f"{esc(opp_type)}</span>"
+            )
+
+        description = esc(self.opp.get("description", ""))
+        if description:
+            parts.append(f"<p>{description}</p>")
+
+        # --- Context Grid ---
+        extracted = self.opp.get("extracted_context") or []
+        if extracted:
+            parts.append("<h2>Context</h2>")
+            # Group by category
+            grouped: dict[str, list[dict]] = {}
+            for item in extracted:
+                cat = item.get("category", "other")
+                grouped.setdefault(cat, []).append(item)
+
+            parts.append('<div class="context-grid">')
+            for category, facts in grouped.items():
+                parts.append('<div class="card">')
+                parts.append(f"<h3>{esc(category.replace('_', ' ').title())}</h3>")
+                for fact_item in facts:
+                    parts.append('<div style="margin-bottom:12px">')
+                    parts.append(
+                        f'<div style="color:var(--text-primary)">'
+                        f'{esc(fact_item.get("fact", ""))}</div>'
+                    )
+                    value = fact_item.get("value")
+                    if value:
+                        parts.append(
+                            f'<span class="badge" style="background:var(--accent);color:#fff">'
+                            f"{esc(str(value))}</span>"
+                        )
+                    source = fact_item.get("source_layer", "")
+                    if source:
+                        parts.append(
+                            f'<div style="color:var(--text-muted);font-size:12px">'
+                            f"{esc(source)}</div>"
+                        )
+                    parts.append("</div>")
+                parts.append("</div>")
+            parts.append("</div>")
+
+        # --- Assumptions ---
+        assumptions = self.opp.get("assumptions") or []
+        if assumptions:
+            status_colors = {
+                "supported": "var(--green)",
+                "untested": "var(--amber)",
+                "contradicted": "var(--red)",
+            }
+            importance_colors = {
+                "critical": "#EF4444",
+                "high": "#F59E0B",
+                "medium": "#3B82F6",
+                "low": "#64748B",
+            }
+            parts.append("<h2>Assumptions</h2>")
+            for asm in assumptions:
+                importance = asm.get("importance", "medium")
+                status = asm.get("status", "untested")
+                border_color = importance_colors.get(importance, "#64748B")
+                badge_color = status_colors.get(status, "var(--amber)")
+                parts.append(
+                    f'<div class="card" style="border-left:3px solid {border_color}">'
+                )
+                parts.append(
+                    '<div style="display:flex;justify-content:space-between;align-items:center">'
+                )
+                parts.append(
+                    f'<span style="color:var(--text-primary)">'
+                    f'{esc(asm.get("content", ""))}</span>'
+                )
+                parts.append(
+                    f'<span class="badge" style="background:{badge_color};color:#fff">'
+                    f"{esc(status)}</span>"
+                )
+                parts.append("</div></div>")
+
+        # --- Signals ---
+        success = self.opp.get("success_signals") or []
+        kill = self.opp.get("kill_signals") or []
+        if success or kill:
+            parts.append("<h2>Signals</h2>")
+            parts.append(
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">'
+            )
+            # Success
+            parts.append("<div><h3>Success Signals</h3>")
+            if success:
+                parts.append('<ul class="signal-list">')
+                for sig in success:
+                    parts.append(f'<li class="signal--success">{esc(sig)}</li>')
+                parts.append("</ul>")
+            parts.append("</div>")
+            # Kill
+            parts.append("<div><h3>Kill Signals</h3>")
+            if kill:
+                parts.append('<ul class="signal-list">')
+                for sig in kill:
+                    parts.append(f'<li class="signal--kill">{esc(sig)}</li>')
+                parts.append("</ul>")
+            parts.append("</div>")
+            parts.append("</div>")
+
+        return "\n".join(parts)
 
     def _render_act2_strategy(self) -> str:
         return ""
