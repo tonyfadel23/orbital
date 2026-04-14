@@ -591,18 +591,18 @@ async function buildGraphFromWorkspace(opp_id) {
         ...f, agent: fn, agentLabel: fn, typeColor: TYPE_COLORS[f.type] || '#64748B'
       });
       node.isCounter = f.type === 'counter_signal' || f.direction === 'contradicts';
-      node.cluster = fn;
       nodeMap[key] = node; sim.nodes.push(node);
 
-      // Link to assumptions
+      // Link to assumptions — cluster around first linked assumption
       const asmLinks = f.assumptions || f.assumption_refs || [];
       let linked = false;
       asmLinks.forEach(asmId => {
         if (nodeMap[asmId]) {
-          sim.links.push(new GLink(node, nodeMap[asmId], 130, color, 'assumption'));
+          sim.links.push(new GLink(node, nodeMap[asmId], 80, color, 'assumption'));
           linked = true;
         }
       });
+      node.cluster = (asmLinks[0] && nodeMap[asmLinks[0]]) ? asmLinks[0] : fn;
       // Fallback: link to brief
       if (!linked) {
         sim.links.push(new GLink(node, briefNode, 100, color, 'finding'));
@@ -1185,8 +1185,9 @@ async function renderGraphPanel(el, opp_id, opp) {
   // Spawn all nodes
   const cx = sim.width / 2, cy = sim.height / 2;
   const AGENT_ANGLES = { product: Math.PI / 4, design: 3 * Math.PI / 4, data: 5 * Math.PI / 4, engineering: 7 * Math.PI / 4 };
-  const agentKeys = [...new Set(sim.nodes.filter(n => n.cluster && n.cluster !== 'assumptions').map(n => n.cluster))];
+  const agentKeys = [...new Set(sim.nodes.filter(n => n.cluster && n.cluster !== 'assumptions' && !nodeMap[n.cluster]?.type?.startsWith('assumption')).map(n => n.cluster))].filter(Boolean);
 
+  // Spawn assumptions first so findings can reference their positions
   for (const n of sim.nodes) {
     if (n.type === 'center') {
       n.spawn(cx, cy, 0, 0); n.pinned = true;
@@ -1194,7 +1195,21 @@ async function renderGraphPanel(el, opp_id, opp) {
       const asmNodes = sim.nodes.filter(nn => nn.type === 'assumption');
       const i = asmNodes.indexOf(n);
       const angle = (i / Math.max(asmNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
-      n.spawn(cx + Math.cos(angle) * 100, cy + Math.sin(angle) * 100, Math.cos(angle) * 0.3, Math.sin(angle) * 0.3);
+      n.spawn(cx + Math.cos(angle) * 120, cy + Math.sin(angle) * 120, Math.cos(angle) * 0.3, Math.sin(angle) * 0.3);
+    }
+  }
+  // Spawn remaining nodes — findings near their assumption cluster
+  for (const n of sim.nodes) {
+    if (n.type === 'center' || n.type === 'assumption') continue;
+    const asmAnchor = n.cluster && nodeMap[n.cluster];
+    if (asmAnchor && asmAnchor.type === 'assumption') {
+      const offset = 40 + Math.random() * 50;
+      const angle = Math.random() * Math.PI * 2;
+      n.spawn(
+        asmAnchor.x + Math.cos(angle) * offset + (Math.random() - 0.5) * 20,
+        asmAnchor.y + Math.sin(angle) * offset + (Math.random() - 0.5) * 20,
+        Math.cos(angle) * 0.2, Math.sin(angle) * 0.2
+      );
     } else if (n.cluster) {
       const ai = agentKeys.indexOf(n.cluster);
       const homeAngle = AGENT_ANGLES[n.cluster] || (ai / Math.max(agentKeys.length, 1)) * Math.PI * 2;
@@ -1588,10 +1603,8 @@ function renderOrbSidebar(el, opp_id, opp) {
       </button>
     </div>
     <div class="subheading mb-12 lh-14">${esc(opp.title || '')}</div>
-    <div class="quality-card" id="quality-card" onclick="switchSidebarTab('quality')"></div>`;
+    `;
 
-  // Load quality card summary
-  loadQualityCard(opp_id);
 
   // Fetch full workspace to render sidebar tabs
   api.get(`workspaces/${opp_id}`).then(ws => {
@@ -3288,36 +3301,112 @@ function renderSidebar(ws, opp_id) {
     <button class="sidebar-tab ${activeTab === 'overview' ? 'active' : ''}" onclick="switchSidebarTab('overview')">Overview</button>
     <button class="sidebar-tab ${activeTab === 'evidence' ? 'active' : ''}" onclick="switchSidebarTab('evidence')">Evidence</button>
     <button class="sidebar-tab ${activeTab === 'agents' ? 'active' : ''}" onclick="switchSidebarTab('agents')">Agents</button>
-    <button class="sidebar-tab ${activeTab === 'quality' ? 'active' : ''}" onclick="switchSidebarTab('quality')">Quality</button>
   </div>`;
 
-  // ── Overview tab: Synthesis + Assumptions ──
+  // ── Overview tab: Executive summary ──
   let overview = '';
+
+  // HMW headline + type badge
+  overview += `
+    <div class="sidebar-section">
+      <div class="subheading" style="font-size:14px;line-height:1.4;color:var(--text-primary)">${esc(opp.title)}</div>
+      <div style="margin-top:6px;display:flex;gap:6px">
+        <span class="contrib-badge" style="background:rgba(16,185,129,0.12);color:#10B981">${opp.type || 'discovery'}</span>
+        <span class="contrib-badge">${opp.status || 'draft'}</span>
+      </div>
+    </div>`;
+
+  // Synthesis verdict (if exists) — one card
   if (ws.synthesis) {
+    const recColors = { proceed: '#10B981', pivot: '#F59E0B', kill: '#EF4444', need_more_data: '#64748B' };
+    const rec = ws.synthesis.recommendation || '';
+    const recColor = recColors[rec] || '#64748B';
     overview += `
       <div class="sidebar-section">
-        <div class="sidebar-section-title">Synthesis</div>
-        <div class="card card--accent-left">
-          <div class="subheading mb-4 text-accent">${esc(ws.synthesis?.verdict || ws.synthesis?.decision || 'Complete')}</div>
-          <div class="text-sm text-secondary lh-16">${esc(ws.synthesis?.verdict_summary || ws.synthesis?.executive_summary || '')}</div>
+        <div class="card card--accent-left" style="border-left-color:${recColor}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="subheading mb-0" style="color:${recColor};font-size:12px;text-transform:uppercase">${esc(rec.replace(/_/g, ' ') || 'pending')}</span>
+          </div>
+          <div class="text-sm text-secondary lh-16">${esc(ws.synthesis.verdict_summary || ws.synthesis.executive_summary || '')}</div>
         </div>
       </div>`;
   }
-  if (opp.assumptions?.length) {
+
+  // Prototypes & artifacts — clickable links that open in slide-over
+  const allArtifacts = ws.artifacts || [];
+  const protoArtifacts = allArtifacts.filter(a => /prototype|\.html$/i.test(a.filename));
+  const agentArtifacts = allArtifacts.filter(a => !(/prototype|\.html$/i.test(a.filename)));
+  if (allArtifacts.length) {
     overview += `
       <div class="sidebar-section">
-        <div class="sidebar-section-title">Assumptions (${opp.assumptions.length})</div>
-        ${opp.assumptions.map(normalizeAssumption).map(a => `
-          <div class="finding-card neutral" style="border-left-color:${IMP_COLORS[a.importance] || '#64748B'}">
-            <div class="finding-header">
-              <span class="finding-type" style="color:${IMP_COLORS[a.importance] || '#64748B'}">${a.importance || 'medium'}</span>
-              <span class="finding-conf">${a.status || 'untested'}</span>
-            </div>
-            <div class="finding-text">${esc(a.content)}</div>
+        <div class="sidebar-section-title">Artifacts</div>
+        ${protoArtifacts.map(a => `
+          <div class="contrib-item" onclick="toggleArtifact('${opp_id}','${a.filename}')" style="cursor:pointer">
+            <div class="contrib-dot" style="background:#A78BFA"></div>
+            <div class="contrib-name">${a.filename}</div>
+            <div class="contrib-badge" style="background:rgba(167,139,250,0.15);color:#A78BFA">${/\.html$/i.test(a.filename) ? 'html' : 'proto'}</div>
+          </div>`).join('')}
+        ${agentArtifacts.map(a => `
+          <div class="contrib-item" onclick="toggleArtifact('${opp_id}','${a.filename}')" style="cursor:pointer">
+            <div class="contrib-dot" style="background:${agentColor(a.filename.replace(/\..*$/, ''))}"></div>
+            <div class="contrib-name">${a.filename}</div>
+            <div class="contrib-badge">.${a.type || 'md'}</div>
           </div>`).join('')}
       </div>`;
   }
-  if (!overview) overview = '<div class="muted-hint" style="padding:16px 0">No synthesis or assumptions yet.</div>';
+
+  // Solutions — compact list (if synthesis exists)
+  const solutions = ws.synthesis?.solutions || [];
+  if (solutions.length) {
+    const archColors = { incremental: '#10B981', moderate: '#3B82F6', ambitious: '#A855F7' };
+    const sorted = [...solutions].sort((a, b) => (b.ice_score?.total || 0) - (a.ice_score?.total || 0));
+    overview += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Solutions (${solutions.length})</div>
+        ${sorted.map(s => {
+          const ac = archColors[s.archetype] || '#64748B';
+          const iceTotal = s.ice_score?.total || 0;
+          return `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+            <span class="contrib-badge" style="background:${ac}20;color:${ac};font-size:10px">${s.archetype || '?'}</span>
+            <span class="text-sm" style="color:var(--text-primary);flex:1">${esc(s.title || '')}</span>
+            <span class="text-xs text-secondary">ICE ${iceTotal}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  // Investigation progress — inline chips
+  const roster = opp.roster || [];
+  if (roster.length) {
+    const contributedFns = new Set((ws.contributions || []).map(c => c.agent_function).filter(Boolean));
+    overview += `
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Team (${contributedFns.size}/${roster.length} contributed)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${roster.map(r => {
+            const fn = rosterFn(r);
+            const done = contributedFns.has(fn);
+            return `
+            <div style="display:flex;align-items:center;gap:4px;padding:3px 7px;border-radius:5px;background:var(--bg-secondary);opacity:${done ? '1' : '0.5'}">
+              <div style="width:5px;height:5px;border-radius:50%;background:${agentColor(fn)}"></div>
+              <span class="text-xs">${r.display_name || fn}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (ws.synthesis) {
+    overview += `<div class="sidebar-section" style="padding-top:0">
+      <button class="btn-primary btn--sm" style="width:100%"
+        onclick="window.open('/api/workspaces/${opp_id}/strategy-doc','_blank')">
+        Export Strategy Document
+      </button>
+    </div>`;
+  }
+
+  if (!overview) overview = '<div class="muted-hint" style="padding:16px 0">No data yet.</div>';
 
   // ── Evidence tab: Artifacts (prototypes first) → Contributions → Reviews ──
   let evidence = '';
@@ -3387,21 +3476,15 @@ function renderSidebar(ws, opp_id) {
   agents += `<div id="agent-stats" class="flex flex-wrap gap-12 font-mono text-xs text-muted mb-8 d-none" style="padding:6px 0"></div>`;
   agents += `<div id="agent-feed"><div class="ai-empty">No agent activity yet.</div></div>`;
 
-  // ── Quality tab ──
-  let quality = `<div id="quality-tab-content"><div class="muted-hint" style="padding:16px 0">Loading quality data...</div></div>`;
-
   const sidebarContent = document.getElementById('sidebar-content');
   if (sidebarContent) sidebarContent.innerHTML = tabBar +
     `<div class="sidebar-tab-content ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview">${overview}</div>` +
     `<div class="sidebar-tab-content ${activeTab === 'evidence' ? 'active' : ''}" data-tab="evidence">${evidence}</div>` +
-    `<div class="sidebar-tab-content ${activeTab === 'agents' ? 'active' : ''}" data-tab="agents">${agents}</div>` +
-    `<div class="sidebar-tab-content ${activeTab === 'quality' ? 'active' : ''}" data-tab="quality">${quality}</div>`;
+    `<div class="sidebar-tab-content ${activeTab === 'agents' ? 'active' : ''}" data-tab="agents">${agents}</div>`;
   // Show chat input bar when Agents tab is active
   const chatBar = document.getElementById('chat-input-bar');
   if (chatBar) chatBar.style.display = activeTab === 'agents' ? '' : 'none';
 
-  // Load quality data if quality tab is active
-  if (activeTab === 'quality') loadQualityTab(opp_id);
 }
 
 function switchSidebarTab(tab) {
@@ -4160,7 +4243,8 @@ function updateGraphStats(sim, agentKeys) {
   el.innerHTML = `
     <div class="stat-badge"><span class="stat-val">${alive.length}</span><span class="stat-label">nodes</span></div>
     <div class="stat-badge"><span class="stat-val">${links.length}</span><span class="stat-label">links</span></div>
-    <div class="stat-badge"><span class="stat-val">${agentKeys.length}</span><span class="stat-label">agents</span></div>`;
+    <div class="stat-badge"><span class="stat-val">${agentKeys.length}</span><span class="stat-label">agents</span></div>
+    <button class="stat-rerun-btn" onclick="confirmRerunOrbit()" title="Re-run investigation">&#8635; Re-run</button>`;
 }
 
 function renderAgentLegend(agentKeys) {
@@ -4169,6 +4253,53 @@ function renderAgentLegend(agentKeys) {
   el.innerHTML = agentKeys.map(k =>
     `<div class="legend-item"><div class="legend-dot" style="background:${agentColor(k)}"></div><span class="legend-name">${k}</span></div>`
   ).join('');
+}
+
+function confirmRerunOrbit() {
+  if (document.querySelector('.evidence-modal-overlay')) return;
+  const opp = state.currentOpp || {};
+  const roster = (opp.roster || []).map(r => typeof r === 'string' ? r : r.function).join(', ');
+  const overlay = document.createElement('div');
+  overlay.className = 'evidence-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="evidence-modal" style="width:440px">
+      <div class="evidence-modal-header">
+        <h3>Re-run Investigation</h3>
+        <p>This will stop any running agents, clear the current graph, and launch a fresh orbit with the same roster.</p>
+      </div>
+      <div class="evidence-modal-body">
+        <div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6">
+          <div style="margin-bottom:8px"><strong style="color:var(--text-primary)">Roster:</strong> ${esc(roster || 'none')}</div>
+          <div style="color:var(--color-counter)">Existing contributions and findings will be replaced by new agent output.</div>
+        </div>
+      </div>
+      <div class="evidence-modal-footer">
+        <button class="evidence-btn-cancel" onclick="this.closest('.evidence-modal-overlay').remove()">Cancel</button>
+        <button class="evidence-btn-gather" onclick="this.closest('.evidence-modal-overlay').remove();rerunOrbit()">Re-run</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function rerunOrbit() {
+  const opp_id = state.graph?.opp_id;
+  if (!opp_id) { toast('No active workspace'); return; }
+  try {
+    // Stop any running agents
+    try { await api.post(`launch/${opp_id}/stop`, {}); } catch {}
+    if (state._agentPoll) { clearInterval(state._agentPoll); state._agentPoll = null; }
+
+    // Re-launch parallel investigation
+    toast('Re-launching orbit...');
+    await api.post(`launch/${opp_id}/start`, {});
+
+    // Rebuild graph and restart polling
+    const graphEl = document.getElementById('graph-panel')?.parentElement;
+    if (graphEl) {
+      await renderGraphPanel(graphEl, opp_id, state.currentOpp);
+    }
+  } catch (err) { toast('Re-run failed: ' + err.message); }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -4198,6 +4329,7 @@ function pollAgentStatus(opp_id) {
   if (state._agentPoll) clearInterval(state._agentPoll);
   state._lastOutputLen = 0;
   state._lastFeedLen = 0;
+  state._fnFeedLens = {};
   state._agentStartTime = Date.now();
   state._agentCost = 0;
   state._agentTurns = 0;
@@ -4243,6 +4375,21 @@ function pollAgentStatus(opp_id) {
         updateAgentFeed(s.output);
         state._lastOutputLen = s.output.length;
       }
+      // Handle parallel agent outputs (Phase 2)
+      if (s.function_outputs) {
+        if (!state._fnFeedLens) state._fnFeedLens = {};
+        let totalLen = 0;
+        for (const [fn, lines] of Object.entries(s.function_outputs)) {
+          totalLen += lines.length;
+          const prevLen = state._fnFeedLens[fn] || 0;
+          if (lines.length > prevLen) {
+            const newLines = lines.slice(prevLen);
+            state._fnFeedLens[fn] = lines.length;
+            updateAgentFeed(newLines, fn);
+          }
+        }
+        state._lastOutputLen = totalLen;
+      }
       // Update stats header
       updateAgentStats(s.running);
       // Enable/disable chat input
@@ -4258,22 +4405,30 @@ function pollAgentStatus(opp_id) {
   state._agentPoll = setInterval(check, 3000);
 }
 
-function updateAgentFeed(lines) {
+function updateAgentFeed(lines, fnName) {
   const feed = document.getElementById('agent-feed');
   if (!feed) return;
-  let start = state._lastFeedLen || 0;
-  if (lines.length < start) start = 0;
-  if (lines.length <= start) return;
-  const newLines = lines.slice(start);
-  state._lastFeedLen = lines.length;
+  // For single-agent mode, use global offset; for parallel, lines are already sliced
+  let newLines;
+  if (!fnName) {
+    let start = state._lastFeedLen || 0;
+    if (lines.length < start) start = 0;
+    if (lines.length <= start) return;
+    newLines = lines.slice(start);
+    state._lastFeedLen = lines.length;
+  } else {
+    newLines = lines;
+  }
   const messages = parseStreamJson(newLines);
   if (!messages.length) return;
   const empty = feed.querySelector('.ai-empty');
   if (empty) empty.remove();
   for (const m of messages) {
+    const label = fnName ? `${fnName}:${m.label}` : m.label;
+    const color = fnName ? agentColor(fnName) : m.color;
     const div = document.createElement('div');
     div.className = 'ai-chat-msg' + (m.isTool ? ' ai-tool' : '');
-    div.innerHTML = `<span class="ai-chat-label" style="color:${m.color}">${esc(m.label)}</span><span class="ai-chat-text">${esc(m.text)}</span>`;
+    div.innerHTML = `<span class="ai-chat-label" style="color:${color}">${esc(label)}</span><span class="ai-chat-text">${esc(m.text)}</span>`;
     feed.appendChild(div);
   }
   feed.scrollTop = feed.scrollHeight;
@@ -4701,19 +4856,35 @@ function addContributionToGraph(sim, nodeMap, renderer, data, filename) {
       ...f, agent: fn, agentLabel: fn, typeColor: TYPE_COLORS[f.type] || '#64748B'
     });
     node.isCounter = f.type === 'counter_signal' || f.direction === 'contradicts';
-    node.cluster = fn;
     nodeMap[key] = node; sim.nodes.push(node);
 
-    const briefNode = nodeMap[briefId];
-    sim.links.push(new GLink(node, briefNode || nodeMap['center'], 100, color, 'finding'));
+    // Link to assumption if available, else to brief
+    const asmLinks = f.assumptions || f.assumption_refs || [];
+    const firstAsm = asmLinks[0];
+    const asmTarget = firstAsm && nodeMap[firstAsm];
+    if (asmTarget) {
+      sim.links.push(new GLink(node, asmTarget, 80, color, 'assumption'));
+      node.cluster = firstAsm;
+    } else {
+      const briefNode = nodeMap[briefId];
+      sim.links.push(new GLink(node, briefNode || nodeMap['center'], 100, color, 'finding'));
+      node.cluster = fn;
+    }
 
-    // Spawn with animation
-    const offset = 120 + Math.random() * 60;
-    node.spawn(
-      cx + Math.cos(homeAngle) * offset + (Math.random() - 0.5) * 40,
-      cy + Math.sin(homeAngle) * offset + (Math.random() - 0.5) * 40,
-      Math.cos(homeAngle) * 0.5, Math.sin(homeAngle) * 0.5
-    );
+    // Spawn near assumption anchor or along agent angle
+    const asmAnchor = asmTarget;
+    if (asmAnchor && asmAnchor.alive) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 40 + Math.random() * 50;
+      node.spawn(asmAnchor.x + Math.cos(angle) * dist, asmAnchor.y + Math.sin(angle) * dist, Math.cos(angle) * 0.5, Math.sin(angle) * 0.5);
+    } else {
+      const offset = 120 + Math.random() * 60;
+      node.spawn(
+        cx + Math.cos(homeAngle) * offset + (Math.random() - 0.5) * 40,
+        cy + Math.sin(homeAngle) * offset + (Math.random() - 0.5) * 40,
+        Math.cos(homeAngle) * 0.5, Math.sin(homeAngle) * 0.5
+      );
+    }
 
     // Enable link
     sim.links.forEach(l => {
@@ -4936,165 +5107,6 @@ function toggleFramingBreakdown() {
     bd.style.display = 'none';
     if (arrow) arrow.innerHTML = '&#9660;';
   }
-}
-
-async function loadQualityStrip(opp_id) {
-  const strip = document.getElementById('quality-strip');
-  if (!strip) return;
-  try {
-    const data = await api.get(`workspaces/${opp_id}/quality`);
-    if (!data || !data.layer_1) { strip.innerHTML = ''; return; }
-    const l1 = data.layer_1;
-    const scoreClass = qualityScoreClass(l1.overall_score);
-    const passCount = l1.gates.filter(g => g.passed).length;
-    const totalCount = l1.gates.length;
-    const failedGates = l1.gates.filter(g => !g.passed);
-    const failDetail = failedGates.length
-      ? `<span class="quality-fail-detail">${failedGates.map(g => esc(g.gate_name.replace(/_/g, ' '))).join(', ')}</span>`
-      : '';
-    strip.innerHTML = `
-      <span class="quality-score quality-score--${scoreClass}">${Math.round(l1.overall_score * 100)}%</span>
-      ${qualityPill(l1.overall_passed)}
-      <span class="text-2xs font-mono text-muted">${passCount}/${totalCount} gates</span>
-      ${failDetail}`;
-  } catch (e) {
-    strip.innerHTML = '';
-  }
-}
-
-async function loadQualityCard(opp_id) {
-  const card = document.getElementById('quality-card');
-  if (!card) return;
-  try {
-    const data = await api.get(`workspaces/${opp_id}/quality`);
-    if (!data || !data.layer_1) {
-      card.innerHTML = `<div class="quality-card__empty">Quality gates will appear once agents report findings.</div>`;
-      return;
-    }
-    const l1 = data.layer_1;
-    const scoreClass = qualityScoreClass(l1.overall_score);
-    const passCount = l1.gates.filter(g => g.passed).length;
-    const totalCount = l1.gates.length;
-
-    let gatesHtml = l1.gates.map(g => {
-      const cls = g.passed ? 'quality-gate-dot--pass' : (g.blocking ? 'quality-gate-dot--fail' : 'quality-gate-dot--warn');
-      return `<div class="quality-gate-row ${cls}">
-        <span class="quality-gate-row__dot"></span>
-        <span class="quality-gate-row__name">${esc(g.gate_name.replace(/_/g, ' '))}</span>
-        <span class="quality-gate-row__detail">${esc(g.detail || '')}</span>
-        ${qualityPill(g.passed)}
-      </div>`;
-    }).join('');
-
-    card.innerHTML = `
-      <div class="quality-card__header">
-        <span class="quality-card__label">Quality</span>
-        <span class="quality-score quality-score--${scoreClass}" style="font-size:var(--text-lg)">${Math.round(l1.overall_score * 100)}%</span>
-        ${qualityPill(l1.overall_passed)}
-        <span class="text-2xs font-mono text-muted" style="margin-left:auto">${passCount}/${totalCount} gates</span>
-      </div>
-      <div class="quality-card__gates">${gatesHtml}</div>`;
-  } catch (e) {
-    card.innerHTML = '';
-  }
-}
-
-async function loadQualityTab(opp_id) {
-  const container = document.getElementById('quality-tab-content');
-  if (!container) return;
-  try {
-    const data = await api.get(`workspaces/${opp_id}/quality`);
-    if (!data) { container.innerHTML = '<div class="muted-hint">Quality data not available.</div>'; return; }
-
-    let html = '';
-
-    // Overall score
-    if (data.layer_1) {
-      const l1 = data.layer_1;
-      const scoreClass = qualityScoreClass(l1.overall_score);
-      html += `
-        <div class="sidebar-section">
-          <div class="flex items-center gap-10 mb-8">
-            <span class="quality-score quality-score--${scoreClass}">${Math.round(l1.overall_score * 100)}%</span>
-            ${qualityPill(l1.overall_passed)}
-          </div>
-        </div>`;
-
-      // Gate cards
-      html += `<div class="sidebar-section">
-        <div class="sidebar-section-title">Layer 1 — Automated Gates</div>`;
-      for (const gate of l1.gates) {
-        const stateClass = gate.passed ? 'quality-gate--pass' : (gate.blocking ? 'quality-gate--fail' : 'quality-gate--warn');
-        html += `
-          <div class="quality-gate ${stateClass}">
-            <span class="quality-gate__name">${esc(gate.gate_name.replace(/_/g, ' '))}</span>
-            <span class="quality-gate__value">${esc(gate.detail || '')}</span>
-            ${qualityPill(gate.passed)}
-          </div>`;
-      }
-      html += '</div>';
-    }
-
-    // Layer 2 — LLM rubrics
-    if (data.layer_2) {
-      html += `<div class="sidebar-section">
-        <div class="sidebar-section-title">Layer 2 — LLM Rubrics</div>
-        <div class="quality-rubric-list">`;
-      for (const [name, rubric] of Object.entries(data.layer_2.rubrics || {})) {
-        const scoreClass = qualityScoreClass(rubric.score);
-        html += `
-          <div class="quality-rubric">
-            <span class="quality-rubric__name">${esc(name.replace(/_/g, ' '))}</span>
-            <span class="quality-rubric__score quality-score--${scoreClass}">${(rubric.score * 100).toFixed(0)}%</span>
-          </div>`;
-      }
-      html += '</div></div>';
-    }
-
-    // Layer 3 — Agent Judge
-    if (data.layer_3) {
-      html += `<div class="sidebar-section">
-        <div class="sidebar-section-title">Layer 3 — Agent Judge</div>
-        <div class="quality-rubric-list">`;
-      for (const [name, rubric] of Object.entries(data.layer_3.rubrics || {})) {
-        const scoreClass = qualityScoreClass(rubric.score);
-        html += `
-          <div class="quality-rubric">
-            <span class="quality-rubric__name">${esc(name.replace(/_/g, ' '))}</span>
-            <span class="quality-rubric__score quality-score--${scoreClass}">${(rubric.score * 100).toFixed(0)}%</span>
-          </div>`;
-      }
-      html += '</div></div>';
-    }
-
-    // Action buttons
-    html += `<div class="sidebar-section">
-      <div class="flex gap-8">
-        <button class="btn-secondary btn--sm" onclick="runLlmJudge('${opp_id}')">Run LLM Judge</button>
-        <button class="btn-secondary btn--sm" onclick="runAgentJudge('${opp_id}')">Run Agent Judge</button>
-      </div>
-    </div>`;
-
-    container.innerHTML = html;
-  } catch (e) {
-    container.innerHTML = '<div class="muted-hint">Failed to load quality data.</div>';
-  }
-}
-
-async function runLlmJudge(opp_id) {
-  try {
-    await api.post(`workspaces/${opp_id}/quality/evaluate`, {});
-    toast('LLM Judge started');
-    setTimeout(() => loadQualityTab(opp_id), 3000);
-  } catch (e) { toast('LLM Judge: ' + e.message); }
-}
-
-async function runAgentJudge(opp_id) {
-  try {
-    await api.post(`workspaces/${opp_id}/quality/judge`, {});
-    toast('Agent Judge started');
-    setTimeout(() => loadQualityTab(opp_id), 5000);
-  } catch (e) { toast('Agent Judge: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════

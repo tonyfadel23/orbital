@@ -1,9 +1,13 @@
 """Workspace REST endpoints — read and write operations."""
 
+import re
+
 from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
+
+from server.services.strategy_doc import StrategyDocBuilder
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -125,3 +129,23 @@ def get_artifact(opp_id: str, filename: str, request: Request):
         import json
         return json.loads(content)
     return PlainTextResponse(content)
+
+
+@router.get("/{opp_id}/strategy-doc")
+def get_strategy_doc(opp_id: str, request: Request):
+    svc = request.app.state.workspace_svc
+    state = svc.get_workspace_state(opp_id)
+    if state is None:
+        raise HTTPException(404, f"Workspace {opp_id} not found")
+    votes = svc.get_votes(opp_id)
+    prototypes = {}
+    for a in state.get("artifacts", []):
+        if re.search(r'prototype|\.html$', a["filename"], re.IGNORECASE):
+            content = svc.get_artifact(opp_id, a["filename"])
+            if content:
+                prototypes[a["filename"]] = content
+    builder = StrategyDocBuilder(state, votes, prototypes)
+    html_content = builder.build()
+    return HTMLResponse(content=html_content, headers={
+        "Content-Disposition": f'inline; filename="strategy-{opp_id}.html"'
+    })
