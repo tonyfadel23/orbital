@@ -46,8 +46,16 @@ If any are missing or vague, ask before proceeding. One question per gap.
    - `L2a/{business_line}.json` — matched from opportunity domain
    - `L2b/{market}.json` — matched from opportunity scope
 3. Surface context sufficiency — what's missing that would change the investigation
-4. Present the framing:
-   - **What I see in the context** — 2-3 bullets connecting the idea to real data/strategy from context files
+4. **Extract relevant context** — From each context layer, identify 2-5 specific facts, metrics, or data points that directly bear on this opportunity. Write them to `extracted_context` in `opportunity.json`. Each item must have:
+   - `category`: metric | persona | competitor | goal | strategy | market_signal
+   - `fact`: the specific data point (e.g., "tMart fresh category grew 23% YoY in Dubai")
+   - `value`: quantitative value if available (e.g., "23% YoY")
+   - `source_layer`: which context layer (e.g., "L2a-groceries")
+   - `relevance`: why this matters for THIS opportunity (e.g., "Growth signal suggests demand exists but may be supply-constrained")
+
+   Do NOT dump the entire context. Extract ONLY facts that directly inform the investigation.
+5. Present the framing:
+   - **What I see in the context** — 2-3 bullets connecting the idea to real data/strategy from context files (drawn from extracted_context)
    - **My initial read** — 1-2 sentences on how to frame this as an investigation
    - **To sharpen the framing** — ONE specific question: challenge an assumption, surface a gap, or test scope
 
@@ -61,7 +69,8 @@ If any are missing or vague, ask before proceeding. One question per gap.
    - `success_signals` — what evidence means proceed
    - `kill_signals` — what evidence means stop
    - `context_refs` — which context layers are relevant
-3. Append to `refinement_history`: `{"action": "reframed|assumption_added|context_added", "details": "...", "timestamp": "..."}`
+   - `extracted_context` — facts/metrics from context layers relevant to this opportunity
+3. Append to `refinement_history`: `{"action": "reframed|assumption_added|context_added|context_extracted", "details": "...", "timestamp": "..."}`
 4. Share what was updated and why
 5. Ask the next refining question — one per turn
 
