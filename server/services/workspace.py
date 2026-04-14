@@ -184,6 +184,7 @@ class WorkspaceService:
             "assumptions": data.get("assumptions", []),
             "success_signals": data.get("success_signals", []),
             "kill_signals": data.get("kill_signals", []),
+            "extracted_context": [],
             "enabled_tools": data.get("enabled_tools", []),
             "status": "aligning",
             "decision": None,
@@ -202,7 +203,7 @@ class WorkspaceService:
 
     _OPPORTUNITY_FIELDS = {
         "type", "title", "description", "context_refs", "assumptions",
-        "success_signals", "kill_signals", "status", "decision",
+        "success_signals", "kill_signals", "extracted_context", "status", "decision",
         "roster", "refinement_history",
     }
 
