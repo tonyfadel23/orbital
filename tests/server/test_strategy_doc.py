@@ -1,5 +1,6 @@
 """Tests for StrategyDocBuilder — Task 1: skeleton + document shell."""
 
+import html
 import re
 
 import pytest
@@ -361,3 +362,230 @@ class TestAct2MissingSynthesis:
         """Minimal workspace with no synthesis should not crash."""
         result = builder.build()
         assert 'id="act-2"' in result
+
+
+# --- Act 3 fixtures and tests ---
+
+
+@pytest.fixture
+def product_workspace():
+    return {
+        "opportunity": {"title": "Test Product", "type": "hypothesis"},
+        "synthesis": {
+            "solutions": [
+                {
+                    "id": "sol-001",
+                    "title": "Weekly Box",
+                    "description": "Curated weekly grocery box",
+                    "archetype": "incremental",
+                    "recommendation": "proceed",
+                    "ice_score": {
+                        "impact": 7,
+                        "confidence": 6,
+                        "ease": 8,
+                        "total": 336,
+                    },
+                    "proceed_conditions": [
+                        {
+                            "condition": "Positive unit economics",
+                            "measurement": "Margin per box",
+                            "threshold": "> $2",
+                        }
+                    ],
+                    "evidence_refs": ["Finding about weekly demand"],
+                    "depends_on": [],
+                    "solution_quality": {
+                        "evidence_grounding": 0.8,
+                        "distinctiveness": 0.7,
+                    },
+                },
+                {
+                    "id": "sol-002",
+                    "title": "Smart Reorder",
+                    "description": "AI-powered reorder suggestions",
+                    "archetype": "moderate",
+                    "recommendation": "proceed_if",
+                    "ice_score": {
+                        "impact": 8,
+                        "confidence": 5,
+                        "ease": 4,
+                        "total": 160,
+                    },
+                    "proceed_conditions": [],
+                    "evidence_refs": [],
+                    "depends_on": ["sol-001"],
+                },
+                {
+                    "id": "sol-003",
+                    "title": "Grocery Platform",
+                    "description": "Full marketplace for local farms",
+                    "archetype": "ambitious",
+                    "recommendation": "defer",
+                    "ice_score": {
+                        "impact": 9,
+                        "confidence": 3,
+                        "ease": 2,
+                        "total": 54,
+                    },
+                    "depends_on": ["sol-001", "sol-002"],
+                },
+            ],
+            "dot_vote_summary": {
+                "heat_map": {
+                    "market-analyst": {
+                        "sol-001": 8.0,
+                        "sol-002": 6.5,
+                        "sol-003": 4.0,
+                    },
+                    "ux-researcher": {
+                        "sol-001": 7.0,
+                        "sol-002": 7.0,
+                        "sol-003": 5.0,
+                    },
+                },
+                "consensus_ranking": ["sol-001", "sol-002", "sol-003"],
+            },
+            "counter_signals": [
+                {
+                    "finding_ref": "cs-001",
+                    "summary": "Logistics risk",
+                    "severity": "critical",
+                    "addressed": False,
+                },
+            ],
+        },
+        "contributions": [],
+    }
+
+
+@pytest.fixture
+def product_builder(product_workspace):
+    return StrategyDocBuilder(
+        workspace=product_workspace,
+        votes=[
+            {
+                "voter_function": "market-analyst",
+                "votes": [
+                    {
+                        "solution_id": "sol-001",
+                        "scores": {"impact": 8, "confidence": 7, "ease": 9},
+                        "rationale": "Strong market signal",
+                        "flags": [],
+                    },
+                    {
+                        "solution_id": "sol-002",
+                        "scores": {"impact": 7, "confidence": 5, "ease": 4},
+                        "rationale": "Needs validation",
+                        "flags": ["risk"],
+                    },
+                ],
+            },
+        ],
+        prototypes={
+            "sol-001-weekly-box.html": "<div>Prototype content</div><script>alert(1)</script>"
+        },
+    )
+
+
+class TestAct3SolutionCards:
+    def test_act3_renders_solution_cards(self, product_builder):
+        result = product_builder.build()
+        assert "Weekly Box" in result
+        assert "Smart Reorder" in result
+        assert "Grocery Platform" in result
+
+
+class TestAct3ArchetypeBadge:
+    def test_act3_archetype_badge(self, product_builder):
+        result = product_builder.build()
+        assert "incremental" in result.lower()
+        assert "ambitious" in result.lower()
+
+
+class TestAct3IceScores:
+    def test_act3_ice_scores(self, product_builder):
+        result = product_builder.build()
+        # sol-001 ICE values
+        assert "336" in result  # total
+
+
+class TestAct3RecommendationBadge:
+    def test_act3_recommendation_badge(self, product_builder):
+        result = product_builder.build()
+        assert "proceed" in result.lower()
+        assert "defer" in result.lower()
+
+
+class TestAct3PrototypeIframe:
+    def test_act3_embeds_prototype_in_iframe(self, product_builder):
+        result = product_builder.build()
+        assert "srcdoc=" in result
+
+
+class TestAct3PhoneFrame:
+    def test_act3_phone_frame_wraps_prototype(self, product_builder):
+        result = product_builder.build()
+        assert 'class="phone-frame"' in result
+
+
+class TestAct3NoPhoneWithoutPrototype:
+    def test_act3_no_phone_without_prototype(self):
+        ws = {
+            "opportunity": {"title": "Test"},
+            "synthesis": {
+                "solutions": [
+                    {
+                        "id": "sol-099",
+                        "title": "No Proto",
+                        "description": "X",
+                        "archetype": "incremental",
+                        "ice_score": {
+                            "impact": 5,
+                            "confidence": 5,
+                            "ease": 5,
+                            "total": 125,
+                        },
+                        "recommendation": "proceed",
+                    }
+                ],
+            },
+            "contributions": [],
+        }
+        b = StrategyDocBuilder(workspace=ws, votes=[], prototypes={})
+        result = b.build()
+        assert 'class="phone-frame"' not in result
+
+
+class TestAct3CollapsiblePanels:
+    def test_act3_collapsible_panels(self, product_builder):
+        result = product_builder.build()
+        assert result.count("collapsible-toggle") >= 3  # at least 3 panels for sol-001
+
+
+class TestAct3HeatMap:
+    def test_act3_heat_map(self, product_builder):
+        result = product_builder.build()
+        assert "heat-map" in result
+        assert "market-analyst" in result
+
+
+class TestAct3CompoundCarousel:
+    def test_act3_compound_carousel(self, product_builder):
+        result = product_builder.build()
+        # sol-003 depends_on has 2+ entries -> carousel should exist
+        assert "carousel" in result
+
+
+class TestAct3SanitizesPrototype:
+    def test_act3_sanitizes_prototype(self, product_builder):
+        result = product_builder.build()
+        assert "Prototype content" in result
+        # alert(1) should be fully stripped by sanitizer (entire script block removed)
+        assert "alert(1)" not in result
+        # The srcdoc attribute should not contain a raw <script> tag
+        # (the document's own <script> for JS is fine — we check the prototype is clean)
+        srcdoc_match = re.search(r'srcdoc="([^"]*)"', result)
+        assert srcdoc_match is not None
+        srcdoc_content = html.unescape(srcdoc_match.group(1))
+        assert "<script>" not in srcdoc_content
+        assert "alert" not in srcdoc_content

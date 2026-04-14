@@ -724,8 +724,203 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return "\n".join(parts)
 
+    def _match_prototype(self, sol_id: str, sol_title: str) -> str | None:
+        slug = re.sub(r'[^a-z0-9]+', '-', sol_title.lower()).strip('-')
+        for fname, content in self.prototypes.items():
+            if sol_id in fname or slug in fname:
+                return self._sanitize_html(content)
+        return None
+
     def _render_act3_product(self) -> str:
-        return ""
+        solutions = self.synthesis.get("solutions", [])
+        if not solutions:
+            return '<p style="color:var(--text-muted)">No solutions yet.</p>'
+
+        dot_vote = self.synthesis.get("dot_vote_summary", {})
+        heat_map = dot_vote.get("heat_map", {})
+        counter_signals = self.synthesis.get("counter_signals", [])
+
+        parts = ['<h2>Solutions</h2>']
+        for sol in solutions:
+            parts.append(self._render_solution_row(sol, heat_map, counter_signals))
+
+        # Compound plays carousel
+        compound = [s for s in solutions if len(s.get("depends_on", [])) >= 2]
+        if compound:
+            parts.append(self._render_compound_carousel(compound, solutions))
+
+        return "\n".join(parts)
+
+    def _render_solution_row(self, sol: dict, heat_map: dict, counter_signals: list) -> str:
+        esc = html.escape
+        sol_id = sol.get("id", "")
+        title = esc(sol.get("title", ""))
+        description = esc(sol.get("description", ""))
+        archetype = sol.get("archetype", "")
+        recommendation = sol.get("recommendation", "")
+        ice = sol.get("ice_score", {})
+        impact = ice.get("impact", 0)
+        confidence = ice.get("confidence", 0)
+        ease = ice.get("ease", 0)
+        total = ice.get("total", 0)
+        proceed_conditions = sol.get("proceed_conditions") or []
+        evidence_refs = sol.get("evidence_refs") or []
+        solution_quality = sol.get("solution_quality") or {}
+
+        # Color mappings
+        arch_colors = {"incremental": "#10B981", "moderate": "#3B82F6", "ambitious": "#A855F7"}
+        rec_colors = {"proceed": "#10B981", "proceed_if": "#F59E0B", "defer": "#64748B", "kill": "#EF4444"}
+        sev_colors = {"critical": "#EF4444", "notable": "#F59E0B", "minor": "#64748B"}
+
+        arch_color = arch_colors.get(archetype, "#64748B")
+        rec_color = rec_colors.get(recommendation, "#64748B")
+
+        # Match prototype
+        prototype_html = self._match_prototype(sol_id, sol.get("title", ""))
+
+        # Determine grid columns
+        grid_cols = "1fr 320px" if prototype_html else "1fr"
+
+        parts = [f'<div class="solution-row" style="grid-template-columns:{grid_cols}">']
+
+        # --- Left column ---
+        parts.append('<div>')
+        parts.append(f'<span class="badge" style="background:{arch_color};color:#fff">{esc(archetype)}</span>')
+        parts.append(f'<span class="badge" style="background:{rec_color};color:#fff;margin-left:8px">{esc(recommendation)}</span>')
+        parts.append(f'<h3 style="margin-top:12px">{title}</h3>')
+        parts.append(f'<p>{description}</p>')
+
+        # ICE mini-bars
+        parts.append('<div style="margin:16px 0">')
+        for dim_name, dim_val in [("Impact", impact), ("Confidence", confidence), ("Ease", ease)]:
+            pct = dim_val * 10
+            parts.append('<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">')
+            parts.append(f'<span style="width:80px;color:var(--text-muted);font-size:12px">{dim_name}</span>')
+            parts.append(f'<div class="bar" style="flex:1"><div class="bar__fill" style="width:{pct}%;background:var(--accent)"></div></div>')
+            parts.append(f'<span style="color:var(--text-secondary);font-size:13px;width:24px">{dim_val}</span>')
+            parts.append('</div>')
+        parts.append(f'<div style="color:var(--text-muted);font-size:12px;margin-top:4px">Total: {total}</div>')
+        parts.append('</div>')
+
+        # Heat Map
+        sol_has_heat = any(sol_id in scores for scores in heat_map.values())
+        if sol_has_heat:
+            parts.append(f'<div class="heat-map" style="grid-template-columns:120px repeat(1, 1fr);margin:16px 0">')
+            for agent_fn, scores in heat_map.items():
+                score = scores.get(sol_id)
+                if score is not None:
+                    if score >= 7:
+                        score_bg = "rgba(16,185,129,0.2)"
+                    elif score >= 5:
+                        score_bg = "rgba(59,130,246,0.2)"
+                    else:
+                        score_bg = "rgba(239,68,68,0.2)"
+                    parts.append(f'<div class="heat-map__cell" style="color:var(--text-muted);text-align:left">{esc(agent_fn)}</div>')
+                    parts.append(f'<div class="heat-map__cell" style="background:{score_bg}">{score}</div>')
+            parts.append('</div>')
+
+        # Collapsible panels
+
+        # Panel 1: Proceed Conditions
+        if proceed_conditions:
+            parts.append('<button class="collapsible-toggle">Proceed Conditions</button>')
+            parts.append('<div class="collapsible-panel">')
+            parts.append('<div style="padding:12px 0">')
+            parts.append('<table class="conditions-table">')
+            parts.append('<thead><tr><th>Condition</th><th>Measurement</th><th>Threshold</th></tr></thead>')
+            parts.append('<tbody>')
+            for cond in proceed_conditions:
+                parts.append(f'<tr><td>{esc(cond.get("condition", ""))}</td>'
+                             f'<td>{esc(cond.get("measurement", ""))}</td>'
+                             f'<td>{esc(cond.get("threshold", ""))}</td></tr>')
+            parts.append('</tbody></table>')
+            parts.append('</div></div>')
+
+        # Panel 2: Evidence
+        if evidence_refs:
+            parts.append('<button class="collapsible-toggle">Evidence</button>')
+            parts.append('<div class="collapsible-panel">')
+            parts.append('<div style="padding:12px 0">')
+            parts.append('<ul style="margin:0;padding-left:16px;color:var(--text-secondary)">')
+            for ref in evidence_refs:
+                parts.append(f'<li>{esc(ref)}</li>')
+            parts.append('</ul>')
+            parts.append('</div></div>')
+
+        # Panel 3: Economics
+        parts.append('<button class="collapsible-toggle">Economics</button>')
+        parts.append('<div class="collapsible-panel">')
+        parts.append('<div style="padding:12px 0;color:var(--text-secondary)">')
+        parts.append(f'<div>Impact: {impact}/10 · Confidence: {confidence}/10 · Ease: {ease}/10</div>')
+        parts.append(f'<div style="margin-top:8px">ICE Total: {total}</div>')
+        if solution_quality:
+            eg = solution_quality.get("evidence_grounding", 0)
+            dist = solution_quality.get("distinctiveness", 0)
+            parts.append(f'<div style="margin-top:8px">Evidence grounding: {eg:.0%} · Distinctiveness: {dist:.0%}</div>')
+        parts.append('</div></div>')
+
+        # Panel 4: Risks
+        parts.append('<button class="collapsible-toggle">Risks</button>')
+        parts.append('<div class="collapsible-panel">')
+        parts.append('<div style="padding:12px 0">')
+        for cs in counter_signals:
+            summary = esc(cs.get("summary", ""))
+            severity = cs.get("severity", "minor")
+            sev_color = sev_colors.get(severity, "#64748B")
+            parts.append(f'<div style="margin-bottom:8px">')
+            parts.append(f'<span class="badge" style="background:{sev_color};color:#fff">{esc(severity)}</span>')
+            parts.append(f'<span style="color:var(--text-secondary);margin-left:8px">{summary}</span>')
+            parts.append('</div>')
+        # Vote flags for this solution
+        for vote_entry in self.votes:
+            voter_fn = vote_entry.get("voter_function", "")
+            for v in vote_entry.get("votes", []):
+                if v.get("solution_id") == sol_id:
+                    for flag in v.get("flags") or []:
+                        parts.append(f'<div style="color:var(--amber);font-size:13px">\u26a0 {esc(flag)} (from {esc(voter_fn)})</div>')
+        parts.append('</div></div>')
+
+        parts.append('</div>')  # end left column
+
+        # --- Right column: phone frame ---
+        if prototype_html:
+            escaped_proto = html.escape(prototype_html)
+            parts.append('<div>')
+            parts.append('<div class="phone-frame">')
+            parts.append('<div class="phone-frame__screen">')
+            parts.append(f'<iframe srcdoc="{escaped_proto}" sandbox="allow-same-origin"></iframe>')
+            parts.append('</div></div></div>')
+
+        parts.append('</div>')  # end solution-row
+
+        return "\n".join(parts)
+
+    def _render_compound_carousel(self, compound: list, all_solutions: list) -> str:
+        esc = html.escape
+        sol_map = {s.get("id", ""): s.get("title", "") for s in all_solutions}
+
+        parts = ['<h2>Compound Plays</h2>']
+        parts.append('<div class="carousel-container">')
+        parts.append('<div class="carousel__nav">')
+        parts.append('<button class="carousel__btn" data-dir="prev">\u2190</button>')
+        parts.append('<button class="carousel__btn" data-dir="next">\u2192</button>')
+        parts.append('</div>')
+        parts.append('<div class="carousel">')
+        for sol in compound:
+            title = esc(sol.get("title", ""))
+            description = esc(sol.get("description", ""))
+            deps = sol.get("depends_on", [])
+            dep_titles = [esc(sol_map.get(d, d)) for d in deps]
+            dep_str = " + ".join(dep_titles)
+            parts.append('<div class="carousel__slide">')
+            parts.append('<div class="card">')
+            parts.append(f'<h3>{title}</h3>')
+            parts.append(f'<p>{description}</p>')
+            parts.append(f'<div style="color:var(--text-muted);font-size:13px">Depends on: {dep_str}</div>')
+            parts.append('</div></div>')
+        parts.append('</div></div>')
+
+        return "\n".join(parts)
 
     def _render_act4_plan(self) -> str:
         return ""
